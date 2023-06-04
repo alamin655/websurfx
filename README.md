@@ -224,13 +224,8 @@ Websurfx is licensed under the [AGPLv3](LICENSE) license.
 
 We would like to thank the following people for their contributions and support:
 
-<p>
-  <br />
-  <a href="https://github.com/neon-mmd/websurfx/graphs/contributors">
-    <img src="CONTRIBUTORS.svg" />
-  </a>
-  <br />
-</p>
+<!-- readme: contributors -start -->
+<!-- readme: contributors -end -->
 
 **[⬆️ Back to Top](#--)**
 
