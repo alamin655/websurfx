@@ -242,10 +242,10 @@ We would like to thank the following people for their contributions and support:
         </a>
     </td>
     <td align="center">
-        <a href="https://github.com/XFFXFF">
-            <img src="https://avatars.githubusercontent.com/u/30254428?v=4" width="64;" alt="XFFXFF"/>
+        <a href="https://github.com/xffxff">
+            <img src="https://avatars.githubusercontent.com/u/30254428?v=4" width="64;" alt="xffxff"/>
             <br />
-            <sub><b>XFFXFF</b></sub>
+            <sub><b>xffxff</b></sub>
         </a>
     </td>
     <td align="center">
