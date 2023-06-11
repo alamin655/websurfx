@@ -271,6 +271,20 @@ We would like to thank the following people for their contributions and support:
     </td></tr>
 <tr>
     <td align="center">
+        <a href="https://github.com/Bruhadeesh">
+            <img src="https://avatars.githubusercontent.com/u/117813048?v=4" width="64;" alt="Bruhadeesh"/>
+            <br />
+            <sub><b>Bruhadeesh</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/LX5321">
+            <img src="https://avatars.githubusercontent.com/u/49933731?v=4" width="64;" alt="LX5321"/>
+            <br />
+            <sub><b>LX5321</b></sub>
+        </a>
+    </td>
+    <td align="center">
         <a href="https://github.com/gotoworq">
             <img src="https://avatars.githubusercontent.com/u/110043355?v=4" width="64;" alt="gotoworq"/>
             <br />
