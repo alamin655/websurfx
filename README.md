@@ -256,10 +256,6 @@ We would like to thank the following people for their contributions and support:
         </a>
     </td>
     <td align="center">
-        <a href="https://github.com/CYBWEBALI">
-            <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="CYBWEBALI"/>
-            <br />
-            <sub><b>CYBWEBALI</b></sub>
         <a href="https://github.com/AlimurtuzaCodes">
             <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="AlimurtuzaCodes"/>
             <br />
