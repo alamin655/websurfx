@@ -256,32 +256,32 @@ We would like to thank the following people for their contributions and support:
         </a>
     </td>
     <td align="center">
+        <a href="https://github.com/AlimurtuzaCodes">
+            <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="AlimurtuzaCodes"/>
+            <br />
+            <sub><b>AlimurtuzaCodes</b></sub>
+        </a>
+    </td>
+    <td align="center">
         <a href="https://github.com/Coollaitar">
             <img src="https://avatars.githubusercontent.com/u/94162491?v=4" width="64;" alt="Coollaitar"/>
             <br />
             <sub><b>Coollaitar</b></sub>
         </a>
-    </td>
+    </td></tr>
+<tr>
     <td align="center">
         <a href="https://github.com/bcsamrudh">
             <img src="https://avatars.githubusercontent.com/u/114090255?v=4" width="64;" alt="bcsamrudh"/>
             <br />
             <sub><b>bcsamrudh</b></sub>
         </a>
-    </td></tr>
-<tr>
+    </td>
     <td align="center">
         <a href="https://github.com/Bruhadeesh">
             <img src="https://avatars.githubusercontent.com/u/117813048?v=4" width="64;" alt="Bruhadeesh"/>
             <br />
             <sub><b>Bruhadeesh</b></sub>
-        </a>
-    </td>
-    <td align="center">
-        <a href="https://github.com/CYBWEBALI">
-            <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="CYBWEBALI"/>
-            <br />
-            <sub><b>CYBWEBALI</b></sub>
         </a>
     </td>
     <td align="center">
