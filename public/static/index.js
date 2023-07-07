@@ -1,5 +1,5 @@
 /**
- * Selects the input element for the search box
+ * Selects the input element for search
  * @type {HTMLInputElement}
  */
 const searchBox = document.querySelector('input');
@@ -14,11 +14,9 @@ function searchWeb() {
   }
 }
 
-/**
- * Listens for the 'Enter' key press event on the search box and calls the searchWeb function
- * @param {KeyboardEvent} e - The keyboard event object
- */
+// Adds an event listener to the search box for the 'keyup' event
 searchBox.addEventListener('keyup', (e) => {
+  // If the 'Enter' key is pressed, call the searchWeb function
   if (e.key === 'Enter') {
     searchWeb();
   }
