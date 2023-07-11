@@ -224,13 +224,125 @@ Websurfx is licensed under the [AGPLv3](LICENSE) license.
 
 We would like to thank the following people for their contributions and support:
 
-<p>
-  <br />
-  <a href="https://github.com/neon-mmd/websurfx/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=neon-mmd/websurfx" />
-  </a>
-  <br />
-</p>
+<!-- readme: contributors -start -->
+<table>
+<tr>
+    <td align="center">
+        <a href="https://github.com/neon-mmd">
+            <img src="https://avatars.githubusercontent.com/u/132049916?v=4" width="64;" alt="neon-mmd"/>
+            <br />
+            <sub><b>neon-mmd</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/alamin655">
+            <img src="https://avatars.githubusercontent.com/u/129589283?v=4" width="64;" alt="alamin655"/>
+            <br />
+            <sub><b>alamin655</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/xffxff">
+            <img src="https://avatars.githubusercontent.com/u/30254428?v=4" width="64;" alt="xffxff"/>
+            <br />
+            <sub><b>xffxff</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/sam-sunder">
+            <img src="https://avatars.githubusercontent.com/u/89068308?v=4" width="64;" alt="sam-sunder"/>
+            <br />
+            <sub><b>sam-sunder</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/MilimTheTrueOne">
+            <img src="https://avatars.githubusercontent.com/u/81323548?v=4" width="64;" alt="MilimTheTrueOne"/>
+            <br />
+            <sub><b>MilimTheTrueOne</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/KekmaTime">
+            <img src="https://avatars.githubusercontent.com/u/136650032?v=4" width="64;" alt="KekmaTime"/>
+            <br />
+            <sub><b>KekmaTime</b></sub>
+        </a>
+    </td></tr>
+<tr>
+    <td align="center">
+        <a href="https://github.com/AlimurtuzaCodes">
+            <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="AlimurtuzaCodes"/>
+            <br />
+            <sub><b>AlimurtuzaCodes</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/Coollaitar">
+            <img src="https://avatars.githubusercontent.com/u/94162491?v=4" width="64;" alt="Coollaitar"/>
+            <br />
+            <sub><b>Coollaitar</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/bcsamrudh">
+            <img src="https://avatars.githubusercontent.com/u/114090255?v=4" width="64;" alt="bcsamrudh"/>
+            <br />
+            <sub><b>bcsamrudh</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/Bruhadeesh">
+            <img src="https://avatars.githubusercontent.com/u/117813048?v=4" width="64;" alt="Bruhadeesh"/>
+            <br />
+            <sub><b>Bruhadeesh</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/LX5321">
+            <img src="https://avatars.githubusercontent.com/u/49933731?v=4" width="64;" alt="LX5321"/>
+            <br />
+            <sub><b>LX5321</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/Trickshotblaster">
+            <img src="https://avatars.githubusercontent.com/u/107130695?v=4" width="64;" alt="Trickshotblaster"/>
+            <br />
+            <sub><b>Trickshotblaster</b></sub>
+        </a>
+    </td></tr>
+<tr>
+    <td align="center">
+        <a href="https://github.com/abhikumar63">
+            <img src="https://avatars.githubusercontent.com/u/65938161?v=4" width="64;" alt="abhikumar63"/>
+            <br />
+            <sub><b>abhikumar63</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/gotoworq">
+            <img src="https://avatars.githubusercontent.com/u/110043355?v=4" width="64;" alt="gotoworq"/>
+            <br />
+            <sub><b>gotoworq</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/sathiyaIbe">
+            <img src="https://avatars.githubusercontent.com/u/121601349?v=4" width="64;" alt="sathiyaIbe"/>
+            <br />
+            <sub><b>sathiyaIbe</b></sub>
+        </a>
+    </td>
+    <td align="center">
+        <a href="https://github.com/spoloxs">
+            <img src="https://avatars.githubusercontent.com/u/112800996?v=4" width="64;" alt="spoloxs"/>
+            <br />
+            <sub><b>spoloxs</b></sub>
+        </a>
+    </td></tr>
+</table>
+<!-- readme: contributors -end -->
 
 **[⬆️ Back to Top](#--)**
 

@@ -5,26 +5,23 @@ on:
   workflow_dispatch:
   
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 0 * * 0"
 
 jobs:
-  contributors:
-    permissions:
-      contents: write
-      pull-requests: write
-
+  contrib-readme-job:
     runs-on: ubuntu-latest
-
+    name: A job to automate contrib in readme
     steps:
-      - name: Checkout code
-        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Contribute List
+        uses: akhilmhdh/contributors-readme-action@master
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.repository.default_branch }}
-          
-      - name: Update contributors list
-        uses: wow-actions/contributors-list@b9e91f91a51a55460fdcae64daad0cb8122cdd53 # v1.1.0
-        with:
+          use_username: true
+          image_size: 64
+          readme_path: README.md
+          columns_per_row: 6
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           svgPath: images/contributors_list.svg
           round: true
