@@ -1,3 +1,4 @@
+---
 name: Contributors List
 
 on:
@@ -22,3 +23,23 @@ jobs:
           columns_per_row: 6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          svgPath: images/contributors_list.svg
+          round: true
+          includeBots: false
+          noCommit: true
+      
+      - name: Commit & PR
+        uses: peter-evans/create-pull-request@38e0b6e68b4c852a5500a94740f0e535e0d7ba54 # v4.2.4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: .github/assets/CONTRIBUTORS.svg
+          commit-message: 'chore: update contributors-list'
+          committer: GitHub <noreply@github.com>
+          author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          signoff: false
+          branch: workflow/update-contributors-list
+          base: main
+          delete-branch: true
+          title: 'chore: update contributors-list'
+          body: |
+            Automated update to `images/contributors_list.svg`
