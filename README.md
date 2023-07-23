@@ -271,6 +271,13 @@ We would like to thank the following people for their contributions and support:
     </td></tr>
 <tr>
     <td align="center">
+        <a href="https://github.com/Trickshotblaster">
+            <img src="https://avatars.githubusercontent.com/u/107130695?v=4" width="64;" alt="Trickshotblaster"/>
+            <br />
+            <sub><b>Trickshotblaster</b></sub>
+        </a>
+    </td>
+    <td align="center">
         <a href="https://github.com/AlimurtuzaCodes">
             <img src="https://avatars.githubusercontent.com/u/88965204?v=4" width="64;" alt="AlimurtuzaCodes"/>
             <br />
@@ -304,15 +311,15 @@ We would like to thank the following people for their contributions and support:
             <br />
             <sub><b>LX5321</b></sub>
         </a>
-    </td>
-    <td align="center">
-        <a href="https://github.com/Trickshotblaster">
-            <img src="https://avatars.githubusercontent.com/u/107130695?v=4" width="64;" alt="Trickshotblaster"/>
-            <br />
-            <sub><b>Trickshotblaster</b></sub>
-        </a>
     </td></tr>
 <tr>
+    <td align="center">
+        <a href="https://github.com/phoffmeister">
+            <img src="https://avatars.githubusercontent.com/u/1093398?v=4" width="64;" alt="phoffmeister"/>
+            <br />
+            <sub><b>phoffmeister</b></sub>
+        </a>
+    </td>
     <td align="center">
         <a href="https://github.com/abhikumar63">
             <img src="https://avatars.githubusercontent.com/u/65938161?v=4" width="64;" alt="abhikumar63"/>
