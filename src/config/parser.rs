@@ -3,7 +3,7 @@
 
 use super::parser_models::Style;
 use rlua::Lua;
-use std::{format, fs, path::Path};
+use std::{collections::HashMap, format, fs, path::Path};
 
 // ------- Constants --------
 static COMMON_DIRECTORY_NAME: &str = "websurfx";
@@ -18,6 +18,11 @@ static CONFIG_FILE_NAME: &str = "config.lua";
 /// * `style` - It stores the theming options for the website.
 /// * `redis_url` - It stores the redis connection url address on which the redis
 /// client should connect.
+/// * `aggregator` -  It stores the option to whether enable or disable production use.
+/// * `logging` - It stores the option to whether enable or disable logs.
+/// * `debug` - It stores the option to whether enable or disable debug mode.
+/// * `upstream_search_engines` - It stores all the engine names that were enabled by the user.
+/// * `request_timeout` - It stores the time (secs) which controls the server request timeout.
 #[derive(Clone)]
 pub struct Config {
     pub port: u16,
@@ -27,12 +32,18 @@ pub struct Config {
     pub aggregator: AggregatorConfig,
     pub logging: bool,
     pub debug: bool,
+    pub upstream_search_engines: Vec<String>,
+    pub request_timeout: u8,
 }
 
 /// Configuration options for the aggregator.
+///
+/// # Fields
+///
+/// * `random_delay` - It stores the option to whether enable or disable random delays between
+/// requests.
 #[derive(Clone)]
 pub struct AggregatorConfig {
-    /// Whether to introduce a random delay before sending the request to the search engine.
     pub random_delay: bool,
 }
 
@@ -66,6 +77,12 @@ impl Config {
                 },
                 logging: globals.get::<_, bool>("logging")?,
                 debug: globals.get::<_, bool>("debug")?,
+                upstream_search_engines: globals
+                    .get::<_, HashMap<String, bool>>("upstream_search_engines")?
+                    .into_iter()
+                    .filter_map(|(key, value)| value.then_some(key))
+                    .collect(),
+                request_timeout: globals.get::<_, u8>("request_timeout")?,
             })
         })
     }
