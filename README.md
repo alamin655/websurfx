@@ -1,4 +1,4 @@
-﻿<h1 align="center">
+<h1 align="center">
   <img src="./images/websurfx_logo.png" alt="websurfx logo" align="center" />
 </h1>
 <p align="center">
@@ -326,7 +326,8 @@ We would like to thank the following people for their contributions and support:
             <br />
             <sub><b>LX5321</b></sub>
         </a>
-    </td>
+    </td></tr>
+<tr>
     <td align="center">
         <a href="https://github.com/phoffmeister">
             <img src="https://avatars.githubusercontent.com/u/1093398?v=4" width="64;" alt="phoffmeister"/>
