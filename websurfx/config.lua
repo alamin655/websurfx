@@ -51,7 +51,8 @@ cache_expiry_time = 600              -- This option takes the expiry time of the
 -- ### Search Engines ###
 upstream_search_engines = {
     DuckDuckGo = true,
-    Searx = true,
-    Brave = true,
-    Startpage = true,
+    Searx = false,
+    Brave = false,
+    Startpage = false,
+    LibreX = false,
 } -- select the upstream search engines from which the results should be fetched.
