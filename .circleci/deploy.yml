@@ -9,7 +9,7 @@ workflows:
           filters:
             branches:
               only:
-                - main
+                - hf-rolling
 
 jobs:
   sync-to-huggingface:
