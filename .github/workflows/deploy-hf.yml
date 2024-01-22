@@ -17,4 +17,5 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: git git pull --allow-unrelated-histories https://alamin655:$HF_TOKEN@huggingface.co/spaces/alamin655/spacex main
         run: git push https://alamin655:$HF_TOKEN@huggingface.co/spaces/alamin655/spacex hf-rolling:main
