@@ -27,4 +27,4 @@ jobs:
                   git config http.postBuffer 524288000
                   git config user.email "<mo.alamin655@gmail.com>" 
                   git config user.name "<alamin655>" 
-                  git push -f https://alamin655:${HF_PERSONAL_TOKEN}@huggingface.co/spaces/alamin655/spacex main
+                  git push -f https://alamin655:${HF_PERSONAL_TOKEN}@huggingface.co/spaces/alamin655/spacex hf-rolling:main
