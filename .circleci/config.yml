@@ -25,6 +25,7 @@ jobs:
           name: push to Huggingface hub
           command: |
                   git config http.postBuffer 524288000
-                  git remote add space https://alamin655:${HF_PERSONAL_TOKEN}@huggingface.co/spaces/alamin655/spacex
+                  git remote add space https://huggingface.co/spaces/alamin655/spacex
+                  git remote set-url space https://alamin655:${HF_PERSONAL_TOKEN}@huggingface.co/spaces/alamin655/spacex
                   git pull --allow-unrelated-histories space main
                   git push -f space hf-rolling:main
