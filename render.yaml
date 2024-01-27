@@ -1,0 +1,25 @@
+services:
+  # A Rust web service
+  - type: web
+    name: websurfx
+    runtime: rust
+    repo: https://github.com/alamin655/websurfx.git
+    buildCommand: 
+    startCommand:
+    plan: free
+    branch: feature/render
+    healthCheckPath: /
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: redis-cache
+          property: connectionString
+
+  # A Redis instance
+  - type: redis
+    name: redis-cache
+    ipAllowList: # required
+      - source: 0.0.0.0/0
+        description: everywhere
+    plan: free
