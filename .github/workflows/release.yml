@@ -1,7 +1,7 @@
 name: Bump release version
 on:
   pull_request:
-    branches: [rolling]
+    branches: [testing]
     types:
       - closed
 
