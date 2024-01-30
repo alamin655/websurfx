@@ -32,7 +32,7 @@
   <a href=""
     ><img
       alt="Maintenance"
-      src="https://img.shields.io/maintenance/yes/2023?style=flat-square"
+      src="https://img.shields.io/maintenance/yes/2024?style=flat-square"
     />
   </a>
   <a href="https://www.codefactor.io/repository/github/neon-mmd/websurfx">
@@ -267,7 +267,7 @@ We would like to thank the following people for their contributions and support:
 
 <p>
   <a href="https://github.com/neon-mmd/websurfx/stargazers">
-    <img src="https://reporoster.com/stars/dark/neon-mmd/websurfx" />
+    <img src="http://reporoster.com/stars/dark/neon-mmd/websurfx"/>
   </a>
 </p>
 
