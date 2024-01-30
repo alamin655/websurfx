@@ -1,0 +1,35 @@
+name: Sync to Hugging Face hub
+
+on:
+  push:
+    branches: [hf-rolling]
+
+  # to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Configure Git
+        run: |
+          git config user.email "${{ secrets.EMAIL }}"
+          git config user.name "${{ secrets.USERNAME }}"
+
+      - name: Pull from Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git pull --allow-unrelated-histories https://alamin655:$HF_TOKEN@huggingface.co/spaces/alamin655/spacex main
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push https://alamin655:$HF_TOKEN@huggingface.co/spaces/alamin655/spacex hf-rolling:main
