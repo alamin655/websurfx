@@ -4,8 +4,8 @@ services:
     name: websurfx
     runtime: rust
     repo: https://github.com/alamin655/websurfx.git
-    buildCommand: 
-    startCommand:
+    buildCommand: cargo build -r --no-default-features --features redis-cache
+    startCommand: ./target/release/websurfx
     plan: free
     branch: feature/render
     healthCheckPath: /
