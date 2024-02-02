@@ -55,7 +55,7 @@ theme = "simple" -- the theme name which should be used for the website
 animation = "simple-frosted-glow" -- the animation name which should be used with the theme or `nil` if you don't want any animations.
 
 -- ### Caching ###
-redis_url = "REDIS_HOST:REDIS_PORT" -- redis connection url address on which the client should connect on.
+redis_url = REDIS_HOST:REDIS_PORT -- redis connection url address on which the client should connect on.
 cache_expiry_time = 600 -- This option takes the expiry time of the search results (value in seconds and the value should be greater than or equal to 60 seconds).
 -- ### Search Engines ###
 upstream_search_engines = {
