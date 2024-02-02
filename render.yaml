@@ -10,11 +10,16 @@ services:
     branch: feature/render
     healthCheckPath: /
     envVars:
-      - key: REDIS_URL
+      - key: REDIS_HOST
         fromService:
           type: redis
           name: redis-cache
-          property: connectionString
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: redis-cache
+          property: port
 
   # A Redis instance
   - type: redis
