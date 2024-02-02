@@ -4,27 +4,8 @@ services:
     name: websurfx
     runtime: rust
     repo: https://github.com/alamin655/websurfx.git
-    buildCommand: cargo build -r --no-default-features --features redis-cache
+    buildCommand: cargo build -r
     startCommand: ./target/release/websurfx
     plan: free
     branch: feature/render
     healthCheckPath: /
-    envVars:
-      - key: REDIS_HOST
-        fromService:
-          type: redis
-          name: redis-cache
-          property: host
-      - key: REDIS_PORT
-        fromService:
-          type: redis
-          name: redis-cache
-          property: port
-
-  # A Redis instance
-  - type: redis
-    name: redis-cache
-    ipAllowList: # required
-      - source: 0.0.0.0/0
-        description: everywhere
-    plan: free
