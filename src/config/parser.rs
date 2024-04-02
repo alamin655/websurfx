@@ -42,6 +42,10 @@ pub struct Config {
     /// It stores the level of safe search to be used for restricting content in the
     /// search results.
     pub safe_search: u8,
+    /// It stores the TCP connection keepalive duration in seconds.
+    pub tcp_connection_keepalive: u8,
+    /// It stores the pool idle connection timeout in seconds.
+    pub pool_idle_connection_timeout: u8,
 }
 
 impl Config {
@@ -131,6 +135,8 @@ impl Config {
             upstream_search_engines: globals
                 .get::<_, HashMap<String, bool>>("upstream_search_engines")?,
             request_timeout: globals.get::<_, u8>("request_timeout")?,
+            tcp_connection_keepalive: globals.get::<_, u8>("tcp_connection_keepalive")?,
+            pool_idle_connection_timeout: globals.get::<_, u8>("pool_idle_connection_timeout")?,
             threads,
             rate_limiter: RateLimiter {
                 number_of_requests: rate_limiter["number_of_requests"],

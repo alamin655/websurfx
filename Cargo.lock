@@ -136,6 +136,7 @@ checksum = "28f32d40287d3f402ae0028a9d54bef51af15c8769492826a69d28f81893151d"
 dependencies = [
  "futures-core",
  "tokio 1.36.0",
+ "tokio-uring",
 ]
 
 [[package]]
@@ -150,8 +151,9 @@ dependencies = [
  "futures-core",
  "futures-util",
  "mio 0.8.11",
- "socket2",
+ "socket2 0.5.6",
  "tokio 1.36.0",
+ "tokio-uring",
  "tracing",
 ]
 
@@ -211,7 +213,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded 0.7.1",
  "smallvec 1.13.1",
- "socket2",
+ "socket2 0.5.6",
  "time 0.3.34",
  "url 2.5.0",
 ]
@@ -242,6 +244,12 @@ name = "adler"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
+
+[[package]]
+name = "adler32"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "aead"
@@ -1667,7 +1675,7 @@ dependencies = [
  "httpdate",
  "itoa 1.0.10",
  "pin-project-lite",
- "socket2",
+ "socket2 0.5.6",
  "tokio 1.36.0",
  "tower-service",
  "tracing",
@@ -1763,6 +1771,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.5.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd1e1a01cfb924fd8c5c43b6827965db394f5a3a16c599ce03452266e1cf984c"
+dependencies = [
+ "bitflags 1.3.2",
+ "libc",
+]
+
+[[package]]
 name = "iovec"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1829,6 +1847,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyword_extraction"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25710ba2c50e4762b267b7387a989d8d1a8235f5cf26cd84e34aac30b263140"
+dependencies = [
+ "regex",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "language-tags"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,6 +1873,26 @@ name = "libc"
 version = "0.2.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+
+[[package]]
+name = "libflate"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ff4ae71b685bbad2f2f391fe74f6b7659a34871c08b210fdc039e43bee07d18"
+dependencies = [
+ "adler32",
+ "crc32fast",
+ "libflate_lz77",
+]
+
+[[package]]
+name = "libflate_lz77"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a52d3a8bfc85f250440e4424db7d857e241a3aebbbe301f3eb606ab15c39acbf"
+dependencies = [
+ "rle-decode-fast",
+]
 
 [[package]]
 name = "libmimalloc-sys"
@@ -3018,6 +3066,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rle-decode-fast"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3582f63211428f83597b51b2ddb88e2a91a9d52d12831f9d08f5e624e8977422"
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3126,6 +3180,12 @@ checksum = "fbc91545643bcf3a0bbb6569265615222618bdf33ce4ffbbd13c4bbd4c093534"
 dependencies = [
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
@@ -3374,6 +3434,16 @@ dependencies = [
 
 [[package]]
 name = "socket2"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f7916fc008ca5542385b89a3d3ce689953c143e9304a9bf8beec1de48994c0d"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "socket2"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05ffd9c0a93b7543e062e759284fcf5f5e3b098501104bfbdde4d404db792871"
@@ -3402,6 +3472,15 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "stop-words"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8500024d809de02ecbf998472b7bed3c4fca380df2be68917f6a473bdb28ddcc"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "string"
@@ -3580,6 +3659,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "thesaurus"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e33ea271e53da683cd3439c04ff3b734f3d6052ea33a65ec9e0fa89a4f96369"
+dependencies = [
+ "lazy_static",
+ "thesaurus-moby",
+]
+
+[[package]]
+name = "thesaurus-moby"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28f7806d5dbe7d9b627e332f88269a014a6a1d40ec411d4ea66cb702aabce4cf"
+dependencies = [
+ "libflate",
+]
+
+[[package]]
 name = "thousands"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3685,7 +3783,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2",
+ "socket2 0.5.6",
  "tokio-macros",
  "windows-sys 0.48.0",
 ]
@@ -3837,6 +3935,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-uring"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d5e02bb137e030b3a547c65a3bd2f1836d66a97369fdcc69034002b10e155ef"
+dependencies = [
+ "io-uring",
+ "libc",
+ "scoped-tls",
+ "slab",
+ "socket2 0.4.10",
+ "tokio 1.36.0",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3941,6 +4053,12 @@ checksum = "a56d1686db2308d901306f92a263857ef59ea39678a5458e7cb17f01415101f5"
 dependencies = [
  "tinyvec",
 ]
+
+[[package]]
+name = "unicode-segmentation"
+version = "1.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4c87d22b6e3f4a18d4d40ef354e97c90fcb14dd91d7dc0aa9d8a1172ebf7202"
 
 [[package]]
 name = "unicode-width"
@@ -4157,7 +4275,7 @@ checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "websurfx"
-version = "1.10.9"
+version = "1.12.1"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -4177,6 +4295,7 @@ dependencies = [
  "error-stack",
  "fake-useragent",
  "futures 0.3.30",
+ "keyword_extraction",
  "lightningcss",
  "log",
  "maud",
@@ -4192,7 +4311,9 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec 1.13.1",
+ "stop-words",
  "tempfile",
+ "thesaurus",
  "tokio 1.36.0",
 ]
 
