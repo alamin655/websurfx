@@ -728,7 +728,7 @@ footer div {
 }
 
 .settings_container .general form input {
-  padding: 0rem;
+  padding: 0;
   width: 30rem;
   text-align: center;
   text-transform: none;
@@ -747,7 +747,7 @@ footer div {
   cursor: pointer;
   box-shadow: 5px 5px;
   outline: none;
-  translate: -1rem 0rem;
+  translate: -1rem 0;
 }
 
 .settings_container .general form input::file-selector-button:active {
