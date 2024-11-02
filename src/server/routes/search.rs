@@ -15,7 +15,7 @@ use actix_web::{get, http::header::ContentType, web, HttpRequest, HttpResponse};
 use itertools::Itertools;
 use regex::Regex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{borrow::Cow, time::Duration};
+use tokio::time::Duration;
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
@@ -54,17 +54,15 @@ pub async fn search(
             let cookie = req.cookie("appCookie");
 
             // Get search settings using the user's cookie or from the server's config
-            let mut search_settings: server_models::Cookie<'_> = cookie
+            let mut search_settings: server_models::Cookie = cookie
                 .and_then(|cookie_value| serde_json::from_str(cookie_value.value()).ok())
                 .unwrap_or_else(|| {
                     server_models::Cookie::build(
-                        &config.style,
+                        config.style.clone(),
                         config
                             .upstream_search_engines
                             .iter()
-                            .filter_map(|(engine, enabled)| {
-                                enabled.then_some(Cow::Borrowed(engine.as_str()))
-                            })
+                            .filter_map(|(engine, enabled)| enabled.then_some(engine.clone()))
                             .collect(),
                         config.safe_search,
                     )
@@ -161,7 +159,7 @@ async fn results(
     cache: &'static SharedCache,
     query: &str,
     page: u32,
-    search_settings: &server_models::Cookie<'_>,
+    search_settings: &server_models::Cookie,
 ) -> Result<(SearchResults, String, bool), Box<dyn std::error::Error>> {
     // eagerly parse cookie value to evaluate safe search level
     let safe_search_level = search_settings.safe_search_level;
