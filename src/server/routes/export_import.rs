@@ -13,7 +13,9 @@ use actix_web::{
     },
     get, post, web, HttpRequest, HttpResponse,
 };
+use std::borrow::Cow;
 use std::io::Read;
+
 use tokio::fs::read_dir;
 
 /// A helper function that helps in building the list of all available colorscheme/theme/animation
@@ -29,8 +31,10 @@ use tokio::fs::read_dir;
 ///
 /// Returns a list of colorscheme/theme names as a vector of tuple strings on success otherwise
 /// returns a standard error message.
-async fn style_option_list(style_type: &str) -> Result<Box<[String]>, Box<dyn std::error::Error>> {
-    let mut style_options: Vec<String> = Vec::new();
+async fn style_option_list<'a>(
+    style_type: &'a str,
+) -> Result<Box<[Cow<'a, str>]>, Box<dyn std::error::Error>> {
+    let mut style_options = Vec::new();
     let mut dir = read_dir(format!(
         "{}static/{}/",
         file_path(FileType::Theme)?,
@@ -39,11 +43,11 @@ async fn style_option_list(style_type: &str) -> Result<Box<[String]>, Box<dyn st
     .await?;
     while let Some(file) = dir.next_entry().await? {
         let style_name = file.file_name().to_str().unwrap().replace(".css", "");
-        style_options.push(style_name.clone());
+        style_options.push(Cow::Owned(style_name));
     }
 
     if style_type == "animations" {
-        style_options.push(String::default())
+        style_options.push(Cow::default())
     }
 
     Ok(style_options.into_boxed_slice())
@@ -61,42 +65,49 @@ async fn style_option_list(style_type: &str) -> Result<Box<[String]>, Box<dyn st
 /// returns a standard error message on failure otherwise it returns the unit type.
 async fn sanitize(
     config: web::Data<&'static Config>,
-    setting_value: &mut models::server_models::Cookie,
+    setting_value: &mut models::server_models::Cookie<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check whether the theme, colorscheme and animation option is valid by matching it against
     // the available option list. If the option provided by the user via the JSON file is invalid
     // then replace the user provided by the default one used by the server via the config file.
+
     if !style_option_list("themes")
         .await?
-        .contains(&setting_value.theme.to_string())
+        .contains(&setting_value.theme)
     {
-        setting_value.theme = config.style.theme.clone()
+        setting_value.theme = Cow::Borrowed(&config.style.theme)
     } else if !style_option_list("colorschemes")
         .await?
-        .contains(&setting_value.colorscheme.to_string())
+        .contains(&setting_value.colorscheme)
     {
-        setting_value.colorscheme = config.style.colorscheme.clone()
+        setting_value.colorscheme = Cow::Borrowed(&config.style.colorscheme)
     } else if !style_option_list("animations")
         .await?
-        .contains(&setting_value.animation.clone().unwrap_or_default())
+        .contains(setting_value.animation.as_ref().unwrap())
     {
-        setting_value.animation = config.style.animation.clone()
+        setting_value.animation = config
+            .style
+            .animation
+            .as_ref()
+            .map(|str| Cow::Borrowed(str.as_str()));
     }
 
     // Filters out any engines in the list that are invalid by matching each engine against the
     // available engine list.
-    setting_value.engines = setting_value
+    let engines: Vec<_> = setting_value
         .engines
-        .clone()
-        .into_iter()
+        .iter()
+        .cloned()
         .filter_map(|engine| {
             config
                 .upstream_search_engines
                 .keys()
-                .any(|other_engine| &engine == other_engine)
-                .then_some(engine)
+                .cloned()
+                .any(|other_engine| *engine == other_engine)
+                .then_some(engine.clone())
         })
         .collect();
+    setting_value.engines = Cow::Owned(engines);
 
     setting_value.safe_search_level = match setting_value.safe_search_level {
         0..2 => setting_value.safe_search_level,
@@ -129,7 +140,7 @@ pub async fn set_settings(
                     let mut data = String::new();
                     form.file.file.read_to_string(&mut data).unwrap();
 
-                    let mut unsanitized_json_data: models::server_models::Cookie =
+                    let mut unsanitized_json_data: models::server_models::Cookie<'_> =
                         serde_json::from_str(&data)?;
 
                     sanitize(config, &mut unsanitized_json_data).await?;
@@ -162,15 +173,18 @@ pub async fn download(
     let cookie = req.cookie("appCookie");
 
     // Get search settings using the user's cookie or from the server's config
-    let preferences: server_models::Cookie = cookie
+    let preferences: server_models::Cookie<'_> = cookie
+        .as_ref()
         .and_then(|cookie_value| serde_json::from_str(cookie_value.value()).ok())
         .unwrap_or_else(|| {
             server_models::Cookie::build(
-                config.style.clone(),
+                &config.style,
                 config
                     .upstream_search_engines
                     .iter()
-                    .filter_map(|(engine, enabled)| enabled.then_some(engine.clone()))
+                    .filter_map(|(engine, enabled)| {
+                        enabled.then_some(Cow::Borrowed(engine.as_str()))
+                    })
                     .collect(),
                 u8::default(),
             )
