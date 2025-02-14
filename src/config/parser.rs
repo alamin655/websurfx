@@ -6,6 +6,7 @@ use crate::handler::{file_path, FileType};
 use crate::models::parser_models::{AggregatorConfig, RateLimiter, Style};
 use log::LevelFilter;
 use mlua::Lua;
+use reqwest::Proxy;
 use std::{collections::HashMap, fs, thread::available_parallelism};
 
 /// A named struct which stores the parsed config file options.
@@ -37,15 +38,23 @@ pub struct Config {
     pub request_timeout: u8,
     /// It stores the number of threads which controls the app will use to run.
     pub threads: u8,
+    /// Set the keep-alive time for client connections to the HTTP server
+    pub client_connection_keep_alive: u8,
     /// It stores configuration options for the ratelimiting middleware.
     pub rate_limiter: RateLimiter,
     /// It stores the level of safe search to be used for restricting content in the
     /// search results.
     pub safe_search: u8,
     /// It stores the TCP connection keepalive duration in seconds.
-    pub tcp_connection_keepalive: u8,
+    pub tcp_connection_keep_alive: u8,
     /// It stores the pool idle connection timeout in seconds.
     pub pool_idle_connection_timeout: u8,
+    /// Url of the proxy to use for outgoing requests.
+    pub proxy: Option<Proxy>,
+    /// It stores the number of https connections to keep in the pool.
+    pub number_of_https_connections: u8,
+    /// It stores the operating system's TLS certificates for https requests.
+    pub operating_system_tls_certificates: bool,
 }
 
 impl Config {
@@ -55,7 +64,7 @@ impl Config {
     /// # Arguments
     ///
     /// * `logging_initialized` - It takes a boolean which ensures that the logging doesn't get
-    /// initialized twice. Pass false if the logger has not yet been initialized.
+    ///   initialized twice. Pass false if the logger has not yet been initialized.
     ///
     /// # Error
     ///
@@ -69,11 +78,11 @@ impl Config {
         lua.load(&fs::read_to_string(file_path(FileType::Config)?)?)
             .exec()?;
 
-        let parsed_threads: u8 = globals.get::<_, u8>("threads")?;
+        let parsed_threads: u8 = globals.get("threads")?;
 
-        let debug: bool = globals.get::<_, bool>("debug")?;
-        let logging: bool = globals.get::<_, bool>("logging")?;
-        let adaptive_window: bool = globals.get::<_, bool>("adaptive_window")?;
+        let debug: bool = globals.get("debug")?;
+        let logging: bool = globals.get("logging")?;
+        let adaptive_window: bool = globals.get("adaptive_window")?;
 
         if !logging_initialized {
             set_logging_level(debug, logging);
@@ -90,9 +99,9 @@ impl Config {
             parsed_threads
         };
 
-        let rate_limiter = globals.get::<_, HashMap<String, u8>>("rate_limiter")?;
+        let rate_limiter: HashMap<String, u8> = globals.get("rate_limiter")?;
 
-        let parsed_safe_search: u8 = globals.get::<_, u8>("safe_search")?;
+        let parsed_safe_search: u8 = globals.get::<_>("safe_search")?;
         let safe_search: u8 = match parsed_safe_search {
             0..=4 => parsed_safe_search,
             _ => {
@@ -103,7 +112,7 @@ impl Config {
         };
 
         #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
-        let parsed_cet = globals.get::<_, u16>("cache_expiry_time")?;
+        let parsed_cet = globals.get::<_>("cache_expiry_time")?;
         #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
         let cache_expiry_time = match parsed_cet {
             0..=59 => {
@@ -116,28 +125,39 @@ impl Config {
             _ => parsed_cet,
         };
 
+        let proxy_opt: Option<String> = globals.get::<_>("proxy")?;
+        let proxy = proxy_opt.and_then(|proxy_str| {
+            Proxy::all(proxy_str).ok().and_then(|_| {
+                log::error!("Invalid proxy url, defaulting to no proxy.");
+                None
+            })
+        });
+
         Ok(Config {
-            port: globals.get::<_, u16>("port")?,
-            binding_ip: globals.get::<_, String>("binding_ip")?,
+            operating_system_tls_certificates: globals
+                .get::<_>("operating_system_tls_certificates")?,
+            port: globals.get::<_>("port")?,
+            binding_ip: globals.get::<_>("binding_ip")?,
             style: Style::new(
-                globals.get::<_, String>("theme")?,
-                globals.get::<_, String>("colorscheme")?,
-                globals.get::<_, Option<String>>("animation")?,
+                globals.get::<_>("theme")?,
+                globals.get::<_>("colorscheme")?,
+                globals.get::<_>("animation")?,
             ),
             #[cfg(feature = "redis-cache")]
-            redis_url: globals.get::<_, String>("redis_url")?,
+            redis_url: globals.get::<_>("redis_url")?,
             aggregator: AggregatorConfig {
-                random_delay: globals.get::<_, bool>("production_use")?,
+                random_delay: globals.get::<_>("production_use")?,
             },
             logging,
             debug,
             adaptive_window,
-            upstream_search_engines: globals
-                .get::<_, HashMap<String, bool>>("upstream_search_engines")?,
-            request_timeout: globals.get::<_, u8>("request_timeout")?,
-            tcp_connection_keepalive: globals.get::<_, u8>("tcp_connection_keepalive")?,
-            pool_idle_connection_timeout: globals.get::<_, u8>("pool_idle_connection_timeout")?,
+            upstream_search_engines: globals.get::<_>("upstream_search_engines")?,
+            request_timeout: globals.get::<_>("request_timeout")?,
+            tcp_connection_keep_alive: globals.get::<_>("tcp_connection_keep_alive")?,
+            pool_idle_connection_timeout: globals.get::<_>("pool_idle_connection_timeout")?,
+            number_of_https_connections: globals.get::<_>("number_of_https_connections")?,
             threads,
+            client_connection_keep_alive: globals.get::<_>("client_connection_keep_alive")?,
             rate_limiter: RateLimiter {
                 number_of_requests: rate_limiter["number_of_requests"],
                 time_limit: rate_limiter["time_limit"],
@@ -145,6 +165,7 @@ impl Config {
             safe_search,
             #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
             cache_expiry_time,
+            proxy,
         })
     }
 }
