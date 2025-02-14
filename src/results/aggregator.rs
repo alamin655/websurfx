@@ -14,7 +14,6 @@ use futures::stream::FuturesUnordered;
 use regex::Regex;
 use reqwest::{Client, ClientBuilder};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
@@ -61,7 +60,7 @@ type FutureVec =
 /// * `debug` - Accepts a boolean value to enable or disable debug mode option.
 /// * `upstream_search_engines` - Accepts a vector of search engine names which was selected by the
 /// * `request_timeout` - Accepts a time (secs) as a value which controls the server request timeout.
-/// user through the UI or the config file.
+///   user through the UI or the config file.
 ///
 /// # Error
 ///
@@ -76,29 +75,29 @@ pub async fn aggregate(
     safe_search: u8,
 ) -> Result<SearchResults, Box<dyn std::error::Error>> {
     let client = CLIENT.get_or_init(|| {
-        ClientBuilder::new()
+        let mut cb = ClientBuilder::new()
             .timeout(Duration::from_secs(config.request_timeout as u64)) // Add timeout to request to avoid DDOSing the server
             .pool_idle_timeout(Duration::from_secs(
                 config.pool_idle_connection_timeout as u64,
             ))
-            .tcp_keepalive(Duration::from_secs(config.tcp_connection_keepalive as u64))
+            .tcp_keepalive(Duration::from_secs(config.tcp_connection_keep_alive as u64))
+            .pool_max_idle_per_host(config.number_of_https_connections as usize)
             .connect_timeout(Duration::from_secs(config.request_timeout as u64)) // Add timeout to request to avoid DDOSing the server
+            .use_rustls_tls()
+            .tls_built_in_root_certs(config.operating_system_tls_certificates)
             .https_only(true)
             .gzip(true)
             .brotli(true)
-            .http2_adaptive_window(config.adaptive_window)
-            .build()
-            .unwrap()
+            .http2_adaptive_window(config.adaptive_window);
+
+        if config.proxy.is_some() {
+            cb = cb.proxy(config.proxy.clone().unwrap());
+        }
+
+        cb.build().unwrap()
     });
 
     let user_agent: &str = random_user_agent();
-
-    // Add a random delay before making the request.
-    if config.aggregator.random_delay || !config.debug {
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos() as f32;
-        let delay = ((nanos / 1_0000_0000 as f32).floor() as u64) + 1;
-        tokio::time::sleep(Duration::from_secs(delay)).await;
-    }
 
     let mut names: Vec<&str> = Vec::with_capacity(0);
 
@@ -188,19 +187,21 @@ pub async fn aggregate(
         drop(blacklist_map);
     }
 
-    let mut results: Vec<SearchResult> = result_map
-        .iter()
-        .map(|(_, value)| {
-            let mut copy = value.clone();
-            if !copy.url.contains("temu.com") {
-                copy.calculate_relevance(query.as_str())
+    let mut results: Box<[SearchResult]> = result_map
+        .into_iter()
+        .map(|(_, mut value)| {
+            if !value.url.contains("temu.com") {
+                value.calculate_relevance(query.as_str())
             }
-            copy
+            value
         })
         .collect();
     sort_search_results(&mut results);
 
-    Ok(SearchResults::new(results, &engine_errors_info))
+    Ok(SearchResults::new(
+        results,
+        engine_errors_info.into_boxed_slice(),
+    ))
 }
 
 /// Filters a map of search results using a list of regex patterns.
@@ -247,6 +248,7 @@ pub async fn filter_with_lists(
 
     Ok(())
 }
+
 /// Sorts  SearchResults by relevance score.
 /// <br> sort_unstable is used as its faster,stability is not an issue on our side.
 /// For reasons why, check out [`this`](https://rust-lang.github.io/rfcs/1884-unstable-sort.html)
@@ -262,10 +264,10 @@ fn sort_search_results(results: &mut [SearchResult]) {
             .unwrap_or(Ordering::Less)
     })
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use smallvec::smallvec;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -281,7 +283,7 @@ mod tests {
                 description: "This domain is for use in illustrative examples in documents."
                     .to_owned(),
                 relevance_score: 0.0,
-                engine: smallvec!["Google".to_owned(), "Bing".to_owned()],
+                engine: vec!["Google".to_owned(), "Bing".to_owned()],
             },
         ));
         map_to_be_filtered.push((
@@ -290,7 +292,7 @@ mod tests {
                 title: "Rust Programming Language".to_owned(),
                 url: "https://www.rust-lang.org/".to_owned(),
                 description: "A systems programming language that runs blazingly fast, prevents segfaults, and guarantees thread safety.".to_owned(),
-                engine: smallvec!["Google".to_owned(), "DuckDuckGo".to_owned()],
+                engine: vec!["Google".to_owned(), "DuckDuckGo".to_owned()],
                 relevance_score:0.0
             },)
         );
@@ -331,7 +333,7 @@ mod tests {
                 url: "https://www.example.com".to_owned(),
                 description: "This domain is for use in illustrative examples in documents."
                     .to_owned(),
-                engine: smallvec!["Google".to_owned(), "Bing".to_owned()],
+                engine: vec!["Google".to_owned(), "Bing".to_owned()],
                 relevance_score: 0.0,
             },
         ));
@@ -341,7 +343,7 @@ mod tests {
                 title: "Rust Programming Language".to_owned(),
                 url: "https://www.rust-lang.org/".to_owned(),
                 description: "A systems programming language that runs blazingly fast, prevents segfaults, and guarantees thread safety.".to_owned(),
-                engine: smallvec!["Google".to_owned(), "DuckDuckGo".to_owned()],
+                engine: vec!["Google".to_owned(), "DuckDuckGo".to_owned()],
                 relevance_score:0.0
             },
         ));
@@ -398,7 +400,7 @@ mod tests {
                 url: "https://www.example.com".to_owned(),
                 description: "This domain is for use in illustrative examples in documents."
                     .to_owned(),
-                engine: smallvec!["Google".to_owned(), "Bing".to_owned()],
+                engine: vec!["Google".to_owned(), "Bing".to_owned()],
                 relevance_score: 0.0,
             },
         ));
