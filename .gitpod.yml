@@ -18,10 +18,10 @@ tasks:
 vscode: 
    extensions: 
     - vadimcn.vscode-lldb
-    - cschleiden.vscode-github-actions
+    - github.vscode-github-actions
     - rust-lang.rust-analyzer
-    - bungcip.better-toml
-    - serayuzgur.crates
+    - tamasfe.even-better-toml
+    - BarbossHack.crates-io
     - usernamehw.errorlens
     - DavidAnson.vscode-markdownlint
     - esbenp.prettier-vscode
@@ -38,13 +38,3 @@ vscode:
     - hbenl.test-adapter-converter
     - hbenl.vscode-test-explorer
     - eamodio.gitlens
-
-github: 
-   prebuilds: 
-      master: true 
-      branches: true 
-      pullRequests: true 
-      pullRequestsFromForks: true 
-      addCheck: true 
-      addComment: false
-      addBadge: true
