@@ -47,7 +47,7 @@ impl SearchEngine for Startpage {
         user_agent: &str,
         client: &Client,
         _safe_search: u8,
-    ) -> Result<HashMap<String, SearchResult>, EngineError> {
+    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
         // Page number can be missing or empty string and so appropriate handling is required
         // so that upstream server recieves valid page number.
         let url: String = format!(
@@ -57,13 +57,13 @@ impl SearchEngine for Startpage {
 
         // initializing HeaderMap and adding appropriate headers.
         let header_map = HeaderMap::try_from(&HashMap::from([
-            ("USER_AGENT".to_string(), user_agent.to_string()),
-            ("REFERER".to_string(), "https://google.com/".to_string()),
+            ("User-Agent".to_string(), user_agent.to_string()),
+            ("Referer".to_string(), "https://google.com/".to_string()),
             (
-                "CONTENT_TYPE".to_string(),
+                "Content-Type".to_string(),
                 "application/x-www-form-urlencoded".to_string(),
             ),
-            ("COOKIE".to_string(), "preferences=connect_to_serverEEE0N1Ndate_timeEEEworldN1Ndisable_family_filterEEE0N1Ndisable_open_in_new_windowEEE0N1Nenable_post_methodEEE1N1Nenable_proxy_safety_suggestEEE1N1Nenable_stay_controlEEE0N1Ninstant_answersEEE1N1Nlang_homepageEEEs%2Fnight%2FenN1NlanguageEEEenglishN1Nlanguage_uiEEEenglishN1Nnum_of_resultsEEE10N1Nsearch_results_regionEEEallN1NsuggestionsEEE1N1Nwt_unitEEEcelsius".to_string()),
+            ("Cookie".to_string(), "preferences=connect_to_serverEEE0N1Ndate_timeEEEworldN1Ndisable_family_filterEEE0N1Ndisable_open_in_new_windowEEE0N1Nenable_post_methodEEE1N1Nenable_proxy_safety_suggestEEE1N1Nenable_stay_controlEEE0N1Ninstant_answersEEE1N1Nlang_homepageEEEs%2Fnight%2FenN1NlanguageEEEenglishN1Nlanguage_uiEEEenglishN1Nnum_of_resultsEEE10N1Nsearch_results_regionEEEallN1NsuggestionsEEE1N1Nwt_unitEEEcelsius".to_string()),
         ]))
         .change_context(EngineError::UnexpectedError)?;
 

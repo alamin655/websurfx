@@ -2,10 +2,9 @@
 //! from the upstream search engines in a json format.
 
 use error_stack::Report;
+use futures::future::join_all;
 #[cfg(feature = "memory-cache")]
-use mini_moka::sync::Cache as MokaCache;
-#[cfg(feature = "memory-cache")]
-use mini_moka::sync::ConcurrentCacheExt;
+use moka::future::Cache as MokaCache;
 
 #[cfg(feature = "memory-cache")]
 use std::time::Duration;
@@ -93,7 +92,7 @@ pub trait Cacher: Send + Sync {
         feature = "encrypt-cache-results",
         feature = "cec-cache-results"
     ))]
-    fn encrypt_or_decrypt_results(
+    async fn encrypt_or_decrypt_results(
         &mut self,
         mut bytes: Vec<u8>,
         encrypt: bool,
@@ -137,11 +136,19 @@ pub trait Cacher: Send + Sync {
     /// Returns the compressed bytes on success otherwise it returns a CacheError
     /// on failure.
     #[cfg(any(feature = "compress-cache-results", feature = "cec-cache-results"))]
-    fn compress_results(&mut self, mut bytes: Vec<u8>) -> Result<Vec<u8>, Report<CacheError>> {
-        use std::io::Write;
-        let mut writer = brotli::CompressorWriter::new(Vec::new(), 4096, 11, 22);
+    async fn compress_results(
+        &mut self,
+        mut bytes: Vec<u8>,
+    ) -> Result<Vec<u8>, Report<CacheError>> {
+        use tokio::io::AsyncWriteExt;
+        let mut writer = async_compression::tokio::write::BrotliEncoder::new(Vec::new());
         writer
             .write_all(&bytes)
+            .await
+            .map_err(|_| CacheError::CompressionError)?;
+        writer
+            .shutdown()
+            .await
             .map_err(|_| CacheError::CompressionError)?;
         bytes = writer.into_inner();
         Ok(bytes)
@@ -159,17 +166,17 @@ pub trait Cacher: Send + Sync {
     /// Returns the compressed and encrypted bytes on success otherwise it returns a CacheError
     /// on failure.
     #[cfg(feature = "cec-cache-results")]
-    fn compress_encrypt_compress_results(
+    async fn compress_encrypt_compress_results(
         &mut self,
         mut bytes: Vec<u8>,
     ) -> Result<Vec<u8>, Report<CacheError>> {
         // compress first
-        bytes = self.compress_results(bytes)?;
+        bytes = self.compress_results(bytes).await?;
         // encrypt
-        bytes = self.encrypt_or_decrypt_results(bytes, true)?;
+        bytes = self.encrypt_or_decrypt_results(bytes, true).await?;
 
         // compress again;
-        bytes = self.compress_results(bytes)?;
+        bytes = self.compress_results(bytes).await?;
 
         Ok(bytes)
     }
@@ -187,11 +194,11 @@ pub trait Cacher: Send + Sync {
     /// on failure.
 
     #[cfg(any(feature = "compress-cache-results", feature = "cec-cache-results"))]
-    fn decompress_results(&mut self, bytes: &[u8]) -> Result<Vec<u8>, Report<CacheError>> {
+    async fn decompress_results(&mut self, bytes: &[u8]) -> Result<Vec<u8>, Report<CacheError>> {
         cfg_if::cfg_if! {
              if #[cfg(feature = "compress-cache-results")]
             {
-               decompress_util(bytes)
+               decompress_util(bytes).await
 
             }
             else if  #[cfg(feature = "cec-cache-results")]
@@ -199,24 +206,22 @@ pub trait Cacher: Send + Sync {
                 let decompressed = decompress_util(bytes)?;
                 let decrypted = self.encrypt_or_decrypt_results(decompressed, false)?;
 
-                decompress_util(&decrypted)
+                decompress_util(&decrypted).await
 
             }
         }
     }
 
     /// A helper function that compresses or encrypts search results before they're inserted into a cache store
-
     /// # Arguments
     ///
     /// * `search_results` - A reference to the search_Results to process.
     ///
-
     ///
     /// # Error
     /// Returns a Vec of compressed or encrypted bytes on success otherwise it returns a CacheError
     /// on failure.
-    fn pre_process_search_results(
+    async fn pre_process_search_results(
         &mut self,
         search_results: &SearchResults,
     ) -> Result<Vec<u8>, Report<CacheError>> {
@@ -224,19 +229,20 @@ pub trait Cacher: Send + Sync {
         let mut bytes: Vec<u8> = search_results.try_into()?;
         #[cfg(feature = "compress-cache-results")]
         {
-            let compressed = self.compress_results(bytes)?;
+            let compressed = self.compress_results(bytes).await?;
             bytes = compressed;
         }
 
         #[cfg(feature = "encrypt-cache-results")]
         {
-            let encrypted = self.encrypt_or_decrypt_results(bytes, true)?;
+            let encrypted = self.encrypt_or_decrypt_results(bytes, true).await?;
             bytes = encrypted;
         }
 
         #[cfg(feature = "cec-cache-results")]
         {
-            let compressed_encrypted_compressed = self.compress_encrypt_compress_results(bytes)?;
+            let compressed_encrypted_compressed =
+                self.compress_encrypt_compress_results(bytes).await?;
             bytes = compressed_encrypted_compressed;
         }
 
@@ -256,25 +262,25 @@ pub trait Cacher: Send + Sync {
     /// on failure.
 
     #[allow(unused_mut)] // needs to be mutable when any of the features is enabled
-    fn post_process_search_results(
+    async fn post_process_search_results(
         &mut self,
         mut bytes: Vec<u8>,
     ) -> Result<SearchResults, Report<CacheError>> {
         #[cfg(feature = "compress-cache-results")]
         {
-            let decompressed = self.decompress_results(&bytes)?;
+            let decompressed = self.decompress_results(&bytes).await?;
             bytes = decompressed
         }
 
         #[cfg(feature = "encrypt-cache-results")]
         {
-            let decrypted = self.encrypt_or_decrypt_results(bytes, false)?;
+            let decrypted = self.encrypt_or_decrypt_results(bytes, false).await?;
             bytes = decrypted
         }
 
         #[cfg(feature = "cec-cache-results")]
         {
-            let decompressed_decrypted = self.decompress_results(&bytes)?;
+            let decompressed_decrypted = self.decompress_results(&bytes).await?;
             bytes = decompressed_decrypted;
         }
 
@@ -295,16 +301,19 @@ pub trait Cacher: Send + Sync {
 /// on failure.
 
 #[cfg(any(feature = "compress-cache-results", feature = "cec-cache-results"))]
-fn decompress_util(input: &[u8]) -> Result<Vec<u8>, Report<CacheError>> {
-    use std::io::Write;
-    let mut writer = brotli::DecompressorWriter::new(Vec::new(), 4096);
+async fn decompress_util(input: &[u8]) -> Result<Vec<u8>, Report<CacheError>> {
+    use tokio::io::AsyncWriteExt;
+    let mut writer = async_compression::tokio::write::BrotliDecoder::new(Vec::new());
 
     writer
         .write_all(input)
+        .await
         .map_err(|_| CacheError::CompressionError)?;
-    let bytes = writer
-        .into_inner()
+    writer
+        .shutdown()
+        .await
         .map_err(|_| CacheError::CompressionError)?;
+    let bytes = writer.into_inner();
     Ok(bytes)
 }
 
@@ -329,7 +338,7 @@ impl Cacher for RedisCache {
         let bytes = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(base64_string)
             .map_err(|_| CacheError::Base64DecodingOrEncodingError)?;
-        self.post_process_search_results(bytes)
+        self.post_process_search_results(bytes).await
     }
 
     async fn cache_results(
@@ -345,7 +354,7 @@ impl Cacher for RedisCache {
         let mut bytes = Vec::with_capacity(search_results_len);
 
         for result in search_results {
-            let processed = self.pre_process_search_results(result)?;
+            let processed = self.pre_process_search_results(result).await?;
             bytes.push(processed);
         }
 
@@ -364,13 +373,13 @@ impl Cacher for RedisCache {
     }
 }
 /// TryInto implementation for SearchResults from Vec<u8>
-use std::convert::TryInto;
+use std::{convert::TryInto, sync::Arc};
 
 impl TryInto<SearchResults> for Vec<u8> {
     type Error = CacheError;
 
     fn try_into(self) -> Result<SearchResults, Self::Error> {
-        serde_json::from_slice(&self).map_err(|_| CacheError::SerializationError)
+        bincode::deserialize_from(self.as_slice()).map_err(|_| CacheError::SerializationError)
     }
 }
 
@@ -378,7 +387,7 @@ impl TryInto<Vec<u8>> for &SearchResults {
     type Error = CacheError;
 
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
-        serde_json::to_vec(self).map_err(|_| CacheError::SerializationError)
+        bincode::serialize(self).map_err(|_| CacheError::SerializationError)
     }
 }
 
@@ -386,7 +395,16 @@ impl TryInto<Vec<u8>> for &SearchResults {
 #[cfg(feature = "memory-cache")]
 pub struct InMemoryCache {
     /// The backend cache which stores data.
-    cache: MokaCache<String, Vec<u8>>,
+    cache: Arc<MokaCache<String, Vec<u8>>>,
+}
+
+#[cfg(feature = "memory-cache")]
+impl Clone for InMemoryCache {
+    fn clone(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+        }
+    }
 }
 
 #[cfg(feature = "memory-cache")]
@@ -396,16 +414,18 @@ impl Cacher for InMemoryCache {
         log::info!("Initialising in-memory cache");
 
         InMemoryCache {
-            cache: MokaCache::builder()
-                .time_to_live(Duration::from_secs(config.cache_expiry_time.into()))
-                .build(),
+            cache: Arc::new(
+                MokaCache::builder()
+                    .time_to_live(Duration::from_secs(config.cache_expiry_time.into()))
+                    .build(),
+            ),
         }
     }
 
     async fn cached_results(&mut self, url: &str) -> Result<SearchResults, Report<CacheError>> {
         let hashed_url_string = self.hash_url(url);
-        match self.cache.get(&hashed_url_string) {
-            Some(res) => self.post_process_search_results(res),
+        match self.cache.get(&hashed_url_string).await {
+            Some(res) => self.post_process_search_results(res).await,
             None => Err(Report::new(CacheError::MissingValue)),
         }
     }
@@ -415,13 +435,18 @@ impl Cacher for InMemoryCache {
         search_results: &[SearchResults],
         urls: &[String],
     ) -> Result<(), Report<CacheError>> {
+        let mut tasks: Vec<_> = Vec::with_capacity(urls.len());
         for (url, search_result) in urls.iter().zip(search_results.iter()) {
             let hashed_url_string = self.hash_url(url);
-            let bytes = self.pre_process_search_results(search_result)?;
-            self.cache.insert(hashed_url_string, bytes);
+            let bytes = self.pre_process_search_results(search_result).await?;
+            let new_self = self.clone();
+            tasks.push(tokio::spawn(async move {
+                new_self.cache.insert(hashed_url_string, bytes).await
+            }));
         }
 
-        self.cache.sync();
+        join_all(tasks).await;
+
         Ok(())
     }
 }
@@ -519,7 +544,7 @@ impl SharedCache {
     /// # Arguments
     ///
     /// * `url` - It takes the search url as an argument which will be used as the key to fetch the
-    /// cached results from the cache.
+    ///   cached results from the cache.
     ///
     /// # Error
     ///
@@ -536,9 +561,9 @@ impl SharedCache {
     /// # Arguments
     ///
     /// * `search_results` - It takes the `SearchResults` as an argument which are results that
-    /// needs to be cached.
+    ///   needs to be cached.
     /// * `url` - It takes the search url as an argument which will be used as the key for storing
-    /// results in the cache.
+    ///   results in the cache.
     ///
     /// # Error
     ///

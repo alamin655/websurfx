@@ -11,9 +11,9 @@ use std::fs::read_dir;
 /// # Arguments
 ///
 /// * `style_type` - It takes the style type of the values `theme` and `colorscheme` as an
-/// argument.
+///   argument.
 /// * `selected_style` - It takes the currently selected style value provided via the config file
-/// as an argument.
+///   as an argument.
 ///
 /// # Error
 ///
@@ -36,7 +36,7 @@ fn style_option_list(
     }
 
     if style_type == "animations" {
-        style_option_names.push(("".to_owned(), "none".to_owned()))
+        style_option_names.push((String::default(), "none".to_owned()))
     }
 
     Ok(style_option_names)
@@ -83,9 +83,11 @@ pub fn user_interface(
                "Select the animation for your theme to be used in user interface"
            }
            select name="animations"{
+               @let default_animation = &String::default();
+               @let animation = animation.as_ref().unwrap_or(default_animation);
                // Sets the user selected animation name from the config file as the first option in the selection list.
-               option value=(animation.as_ref().unwrap_or(&"".to_owned())){(animation.as_ref().unwrap_or(&"".to_owned()).replace('-'," "))}
-               @for (k,v) in style_option_list("animations", animation.as_ref().unwrap_or(&"".to_owned()))?{
+               option value=(animation){(animation.replace('-'," "))}
+               @for (k,v) in style_option_list("animations", animation)?{
                    option value=(k){(v)}
                }
            }

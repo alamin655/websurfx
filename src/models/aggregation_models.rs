@@ -3,12 +3,17 @@
 
 use super::engine_models::EngineError;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
-
+#[cfg(any(
+    feature = "use-synonyms-search",
+    feature = "use-non-static-synonyms-search"
+))]
+use thesaurus::synonyms;
 /// A named struct to store the raw scraped search results scraped search results from the
 /// upstream search engines before aggregating it.It derives the Clone trait which is needed
 /// to write idiomatic rust using `Iterators`.
-/// (href url in html in simple words).
+///
+///   (href url in html in simple words).
+///
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
@@ -19,7 +24,9 @@ pub struct SearchResult {
     /// The description of the search result.
     pub description: String,
     /// The names of the upstream engines from which this results were provided.
-    pub engine: SmallVec<[String; 0]>,
+    pub engine: Vec<String>,
+    /// The td-tdf score of the result in regards to the title, url and description and the user's query
+    pub relevance_score: f32,
 }
 
 impl SearchResult {
@@ -29,7 +36,7 @@ impl SearchResult {
     ///
     /// * `title` - The title of the search result.
     /// * `url` - The url which is accessed when clicked on it
-    /// (href url in html in simple words).
+    ///   (href url in html in simple words).
     /// * `description` - The description of the search result.
     /// * `engine` - The names of the upstream engines from which this results were provided.
     pub fn new(title: &str, url: &str, description: &str, engine: &[&str]) -> Self {
@@ -37,8 +44,48 @@ impl SearchResult {
             title: title.to_owned(),
             url: url.to_owned(),
             description: description.to_owned(),
+            relevance_score: 0.0,
             engine: engine.iter().map(|name| name.to_string()).collect(),
         }
+    }
+    /// calculates and update the relevance score of the current search.
+
+    /// # Arguments
+    ///
+    /// * query -  the query string  used to obtain the results
+    ///
+    ///
+
+    pub fn calculate_relevance(&mut self, query: &str) {
+        use stop_words::{get, LANGUAGE};
+        // when language settings can change to any of the ones supported on this crate: https://docs.rs/crate/stop-words/0.8.0
+        let documents = [
+            self.title.clone(),
+            self.url.clone(),
+            self.description.clone(),
+        ];
+
+        let stop_words = get(LANGUAGE::English);
+        let punctuation = [
+            ".".to_owned(),
+            ",".to_owned(),
+            ":".to_owned(),
+            ";".to_owned(),
+            "!".to_owned(),
+            "?".to_owned(),
+            "(".to_owned(),
+            ")".to_owned(),
+            "[".to_owned(),
+            "]".to_owned(),
+            "{".to_owned(),
+            "}".to_owned(),
+            "\"".to_owned(),
+            "'".to_owned(),
+            "<".to_owned(),
+            ">".to_owned(),
+        ];
+
+        self.relevance_score = calculate_tf_idf(query, &documents, &stop_words, &punctuation);
     }
 
     /// A function which adds the engine name provided as a string into a vector of strings.
@@ -79,7 +126,7 @@ impl EngineErrorInfo {
     /// # Arguments
     ///
     /// * `error` - It takes the error type which occured while fetching the result from a particular
-    /// search engine.
+    ///   search engine.
     /// * `engine` - It takes the name of the engine that failed to provide the requested search results.
     pub fn new(error: &EngineError, engine: &str) -> Self {
         Self {
@@ -107,10 +154,10 @@ impl EngineErrorInfo {
 #[serde(rename_all = "camelCase")]
 pub struct SearchResults {
     /// Stores the individual serializable `SearchResult` struct into a vector of
-    pub results: Vec<SearchResult>,
+    pub results: Box<[SearchResult]>,
     /// Stores the information on which engines failed with their engine name
     /// and the type of error that caused it.
-    pub engine_errors_info: Vec<EngineErrorInfo>,
+    pub engine_errors_info: Box<[EngineErrorInfo]>,
     /// Stores the flag option which holds the check value that the following
     /// search query was disallowed when the safe search level set to 4 and it
     /// was present in the `Blocklist` file.
@@ -132,15 +179,15 @@ impl SearchResults {
     /// # Arguments
     ///
     /// * `results` - Takes an argument of individual serializable `SearchResult` struct
-    /// and stores it into a vector of `SearchResult` structs.
+    ///   and stores it into a vector of `SearchResult` structs.
     /// * `page_query` - Takes an argument of current page`s search query `q` provided in
-    /// the search url.
+    ///   the search url.
     /// * `engine_errors_info` - Takes an array of structs which contains information regarding
-    /// which engines failed with their names, reason and their severity color name.
-    pub fn new(results: Vec<SearchResult>, engine_errors_info: &[EngineErrorInfo]) -> Self {
+    ///   which engines failed with their names, reason and their severity color name.
+    pub fn new(results: Box<[SearchResult]>, engine_errors_info: Box<[EngineErrorInfo]>) -> Self {
         Self {
             results,
-            engine_errors_info: engine_errors_info.to_owned(),
+            engine_errors_info,
             disallowed: Default::default(),
             filtered: Default::default(),
             safe_search_level: Default::default(),
@@ -154,16 +201,16 @@ impl SearchResults {
     }
 
     /// A setter function that sets the filtered to true.
-    pub fn set_filtered(&mut self) {
-        self.filtered = true;
+    pub fn set_filtered(&mut self, filtered: bool) {
+        self.filtered = filtered;
     }
 
     /// A getter function that gets the value of `engine_errors_info`.
-    pub fn engine_errors_info(&mut self) -> Vec<EngineErrorInfo> {
+    pub fn engine_errors_info(&mut self) -> Box<[EngineErrorInfo]> {
         std::mem::take(&mut self.engine_errors_info)
     }
     /// A getter function that gets the value of `results`.
-    pub fn results(&mut self) -> Vec<SearchResult> {
+    pub fn results(&mut self) -> Box<[SearchResult]> {
         self.results.clone()
     }
 
@@ -181,4 +228,77 @@ impl SearchResults {
     pub fn set_no_engines_selected(&mut self) {
         self.no_engines_selected = true;
     }
+}
+
+/// Helper function to calculate the tf-idf for the search query.
+/// <br> The approach is  as [`as`](https://en.wikipedia.org/wiki/Tf%E2%80%93idf).
+///  <br> Find a sample article about TF-IDF [`here`](https://medium.com/analytics-vidhya/tf-idf-term-frequency-technique-easiest-explanation-for-text-classification-in-nlp-with-code-8ca3912e58c3)
+/// ### Arguments
+/// * `query` -  a user's search query
+/// * `documents` -  a list of text used for comparision (url, title, description)
+/// * `stop_words` - A list of language specific stop words.
+/// * `punctuation` - list of punctuation symbols.
+/// ### Returns
+/// * `score` - The average tf-idf score of the word tokens (and synonyms) in the query
+fn calculate_tf_idf(
+    query: &str,
+    documents: &[String],
+    stop_words: &[String],
+    punctuation: &[String],
+) -> f32 {
+    use keyword_extraction::{
+        tf_idf::{TfIdf, TfIdfParams},
+        tokenizer::Tokenizer,
+    };
+
+    let params = TfIdfParams::UnprocessedDocuments(documents, stop_words, Some(punctuation));
+    let tf_idf = TfIdf::new(params);
+    let tokener = Tokenizer::new(query, stop_words, Some(punctuation));
+    let query_tokens = tokener.split_into_words();
+
+    #[cfg(any(
+        feature = "use-synonyms-search",
+        feature = "use-non-static-synonyms-search"
+    ))]
+    let mut extra_tokens = vec![];
+
+    let total_score: f32 = query_tokens
+        .iter()
+        .map(|token| {
+            #[cfg(any(
+                feature = "use-synonyms-search",
+                feature = "use-non-static-synonyms-search"
+            ))]
+            {
+                // find some synonyms and add them to the search  (from wordnet or moby if feature is enabled)
+                extra_tokens.extend(synonyms(token))
+            }
+
+            tf_idf.get_score(token)
+        })
+        .sum();
+
+    #[cfg(not(any(
+        feature = "use-synonyms-search",
+        feature = "use-non-static-synonyms-search"
+    )))]
+    let result = total_score / (query_tokens.len() as f32);
+
+    #[cfg(any(
+        feature = "use-synonyms-search",
+        feature = "use-non-static-synonyms-search"
+    ))]
+    let extra_total_score: f32 = extra_tokens
+        .iter()
+        .map(|token| tf_idf.get_score(token))
+        .sum();
+
+    #[cfg(any(
+        feature = "use-synonyms-search",
+        feature = "use-non-static-synonyms-search"
+    ))]
+    let result =
+        (extra_total_score + total_score) / ((query_tokens.len() + extra_tokens.len()) as f32);
+
+    f32::from(!result.is_nan()) * result
 }

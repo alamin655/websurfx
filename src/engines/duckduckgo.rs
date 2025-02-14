@@ -47,7 +47,7 @@ impl SearchEngine for DuckDuckGo {
         user_agent: &str,
         client: &Client,
         _safe_search: u8,
-    ) -> Result<HashMap<String, SearchResult>, EngineError> {
+    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
         // Page number can be missing or empty string and so appropriate handling is required
         // so that upstream server recieves valid page number.
         let url: String = match page {
@@ -65,13 +65,13 @@ impl SearchEngine for DuckDuckGo {
 
         // initializing HeaderMap and adding appropriate headers.
         let header_map = HeaderMap::try_from(&HashMap::from([
-            ("USER_AGENT".to_string(), user_agent.to_string()),
-            ("REFERER".to_string(), "https://google.com/".to_string()),
+            ("User-Agent".to_string(), user_agent.to_string()),
+            ("Referer".to_string(), "https://google.com/".to_string()),
             (
-                "CONTENT_TYPE".to_string(),
+                "Content-Type".to_string(),
                 "application/x-www-form-urlencoded".to_string(),
             ),
-            ("COOKIE".to_string(), "kl=wt-wt".to_string()),
+            ("Cookie".to_string(), "kl=wt-wt".to_string()),
         ]))
         .change_context(EngineError::UnexpectedError)?;
 

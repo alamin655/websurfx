@@ -14,6 +14,7 @@ use crate::models::engine_models::{EngineError, SearchEngine};
 
 use error_stack::{Report, Result, ResultExt};
 
+use super::common::{build_cookie, build_query};
 use super::search_result_parser::SearchResultParser;
 
 /// A new Mojeek engine type defined in-order to implement the `SearchEngine` trait which allows to
@@ -30,8 +31,8 @@ impl Mojeek {
             parser: SearchResultParser::new(
                 ".result-col",
                 ".results-standard li",
-                "a span.url",
-                "h2 a.title",
+                "h2 > a.title",
+                "a.ob",
                 "p.s",
             )?,
         })
@@ -47,7 +48,7 @@ impl SearchEngine for Mojeek {
         user_agent: &str,
         client: &Client,
         safe_search: u8,
-    ) -> Result<HashMap<String, SearchResult>, EngineError> {
+    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
         // Mojeek uses `start results from this number` convention
         // So, for 10 results per page, page 0 starts at 1, page 1
         // starts at 11, and so on.
@@ -72,8 +73,23 @@ impl SearchEngine for Mojeek {
             "Yep",
             "You",
         ];
+
         let qss = search_engines.join("%2C");
-        let safe = if safe_search == 0 { "0" } else { "1" };
+
+        // A branchless condition to check whether the `safe_search` parameter has the
+        // value 0 or not. If it is zero then it sets the value 0 otherwise it sets
+        // the value to 1 for all other values of `safe_search`
+        //
+        // Moreover, the below branchless code is equivalent to the following code below:
+        //
+        // ```rust
+        // let safe = if safe_search == 0 { 0 } else { 1 }.to_string();
+        // ```
+        //
+        // For more information on branchless programming. See:
+        //
+        // * https://piped.video/watch?v=bVJ-mWWL7cE
+        let safe = u8::from(safe_search != 0).to_string();
 
         // Mojeek detects automated requests, these are preferences that are
         // able to circumvent the countermeasure. Some of these are
@@ -89,13 +105,10 @@ impl SearchEngine for Mojeek {
             ("hp", "minimal"),
             ("lb", "en"),
             ("qss", &qss),
-            ("safe", safe),
+            ("safe", &safe),
         ];
 
-        let mut query_params_string = String::new();
-        for (k, v) in &query_params {
-            query_params_string.push_str(&format!("&{k}={v}"));
-        }
+        let query_params_string = build_query(&query_params);
 
         let url: String = match page {
             0 => {
@@ -108,19 +121,16 @@ impl SearchEngine for Mojeek {
             }
         };
 
-        let mut cookie_string = String::new();
-        for (k, v) in &query_params {
-            cookie_string.push_str(&format!("{k}={v}; "));
-        }
+        let cookie_string = build_cookie(&query_params);
 
         let header_map = HeaderMap::try_from(&HashMap::from([
-            ("USER_AGENT".to_string(), user_agent.to_string()),
-            ("REFERER".to_string(), "https://google.com/".to_string()),
+            ("User-Agent".to_string(), user_agent.to_string()),
+            ("Referer".to_string(), "https://google.com/".to_string()),
             (
-                "CONTENT_TYPE".to_string(),
+                "Content-Type".to_string(),
                 "application/x-www-form-urlencoded".to_string(),
             ),
-            ("COOKIE".to_string(), cookie_string),
+            ("Cookie".to_string(), cookie_string),
         ]))
         .change_context(EngineError::UnexpectedError)?;
 
@@ -142,7 +152,7 @@ impl SearchEngine for Mojeek {
             .parse_for_results(&document, |title, url, desc| {
                 Some(SearchResult::new(
                     title.inner_html().trim(),
-                    url.inner_html().trim(),
+                    url.attr("href")?.trim(),
                     desc.inner_html().trim(),
                     &["mojeek"],
                 ))

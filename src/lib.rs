@@ -14,7 +14,7 @@ pub mod results;
 pub mod server;
 pub mod templates;
 
-use std::net::TcpListener;
+use std::{net::TcpListener, sync::OnceLock, time::Duration};
 
 use crate::server::router;
 
@@ -31,6 +31,9 @@ use cache::cacher::{Cacher, SharedCache};
 use config::parser::Config;
 use handler::{file_path, FileType};
 
+/// A static constant for holding the cache struct.
+static SHARED_CACHE: OnceLock<SharedCache> = OnceLock::new();
+
 /// Runs the web server on the provided TCP listener and returns a `Server` instance.
 ///
 /// # Arguments
@@ -44,27 +47,29 @@ use handler::{file_path, FileType};
 /// # Example
 ///
 /// ```rust
-/// use std::net::TcpListener;
+/// use std::{net::TcpListener, sync::OnceLock};
 /// use websurfx::{config::parser::Config, run, cache::cacher::create_cache};
+///
+/// /// A static constant for holding the parsed config.
+/// static CONFIG: OnceLock<Config> = OnceLock::new();
 ///
 /// #[tokio::main]
 /// async fn main(){
-///     let config = Config::parse(true).unwrap();
+///     // Initialize the parsed config globally.
+///     let config = CONFIG.get_or_init(|| Config::parse(true).unwrap());
 ///     let listener = TcpListener::bind("127.0.0.1:8080").expect("Failed to bind address");
-///     let cache = create_cache(&config).await;
-///     let server = run(listener,config,cache).expect("Failed to start server");
+///     let cache = create_cache(config).await;
+///     let server = run(listener,&config,cache).expect("Failed to start server");
 /// }
 /// ```
 pub fn run(
     listener: TcpListener,
-    config: Config,
+    config: &'static Config,
     cache: impl Cacher + 'static,
 ) -> std::io::Result<Server> {
     let public_folder_path: &str = file_path(FileType::Theme)?;
 
-    let cloned_config_threads_opt: u8 = config.threads;
-
-    let cache = web::Data::new(SharedCache::new(cache));
+    let cache = SHARED_CACHE.get_or_init(|| SharedCache::new(cache));
 
     let server = HttpServer::new(move || {
         let cors: Cors = Cors::default()
@@ -81,12 +86,12 @@ pub fn run(
             // Compress the responses provided by the server for the client requests.
             .wrap(Compress::default())
             .wrap(Logger::default()) // added logging middleware for logging.
-            .app_data(web::Data::new(config.clone()))
-            .app_data(cache.clone())
+            .app_data(web::Data::new(config))
+            .app_data(web::Data::new(cache))
             .wrap(cors)
             .wrap(Governor::new(
                 &GovernorConfigBuilder::default()
-                    .per_second(config.rate_limiter.time_limit as u64)
+                    .seconds_per_request(config.rate_limiter.time_limit as u64)
                     .burst_size(config.rate_limiter.number_of_requests as u32)
                     .finish()
                     .unwrap(),
@@ -105,9 +110,14 @@ pub fn run(
             .service(server::routes::search::search) // search page
             .service(router::about) // about page
             .service(router::settings) // settings page
+            .service(server::routes::export_import::download) // download page
             .default_service(web::route().to(router::not_found)) // error page
     })
-    .workers(cloned_config_threads_opt as usize)
+    .workers(config.threads as usize)
+    // Set the keep-alive timer for client connections
+    .keep_alive(Duration::from_secs(
+        config.client_connection_keep_alive as u64,
+    ))
     // Start server on 127.0.0.1 with the user provided port number. for example 127.0.0.1:8080.
     .listen(listener)?
     .run();

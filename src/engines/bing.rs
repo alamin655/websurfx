@@ -15,6 +15,7 @@ use crate::models::engine_models::{EngineError, SearchEngine};
 
 use error_stack::{Report, Result, ResultExt};
 
+use super::common::build_cookie;
 use super::search_result_parser::SearchResultParser;
 
 /// A new Bing engine type defined in-order to implement the `SearchEngine` trait which allows to
@@ -48,7 +49,7 @@ impl SearchEngine for Bing {
         user_agent: &str,
         client: &Client,
         _safe_search: u8,
-    ) -> Result<HashMap<String, SearchResult>, EngineError> {
+    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
         // Bing uses `start results from this number` convention
         // So, for 10 results per page, page 0 starts at 1, page 1
         // starts at 11, and so on.
@@ -73,19 +74,16 @@ impl SearchEngine for Bing {
             ("_UR=QS=0&TQS", "0"),
         ];
 
-        let mut cookie_string = String::new();
-        for (k, v) in &query_params {
-            cookie_string.push_str(&format!("{k}={v}; "));
-        }
+        let cookie_string = build_cookie(&query_params);
 
         let header_map = HeaderMap::try_from(&HashMap::from([
-            ("USER_AGENT".to_string(), user_agent.to_string()),
-            ("REFERER".to_string(), "https://google.com/".to_string()),
+            ("User-Agent".to_string(), user_agent.to_string()),
+            ("Referer".to_string(), "https://google.com/".to_string()),
             (
-                "CONTENT_TYPE".to_string(),
+                "Content-Type".to_string(),
                 "application/x-www-form-urlencoded".to_string(),
             ),
-            ("COOKIE".to_string(), cookie_string),
+            ("Cookie".to_string(), cookie_string),
         ]))
         .change_context(EngineError::UnexpectedError)?;
 

@@ -44,7 +44,7 @@ impl SearchEngine for Brave {
         user_agent: &str,
         client: &Client,
         safe_search: u8,
-    ) -> Result<HashMap<String, SearchResult>, EngineError> {
+    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
         let url = format!("https://search.brave.com/search?q={query}&offset={page}");
 
         let safe_search_level = match safe_search {
@@ -54,14 +54,14 @@ impl SearchEngine for Brave {
         };
 
         let header_map = HeaderMap::try_from(&HashMap::from([
-            ("USER_AGENT".to_string(), user_agent.to_string()),
+            ("User-Agent".to_string(), user_agent.to_string()),
             (
-                "CONTENT_TYPE".to_string(),
+                "Content-Type".to_string(),
                 "application/x-www-form-urlencoded".to_string(),
             ),
-            ("REFERER".to_string(), "https://google.com/".to_string()),
+            ("Referer".to_string(), "https://google.com/".to_string()),
             (
-                "COOKIE".to_string(),
+                "Cookie".to_string(),
                 format!("safe_search={safe_search_level}"),
             ),
         ]))
