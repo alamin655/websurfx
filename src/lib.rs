@@ -14,7 +14,7 @@ pub mod results;
 pub mod server;
 pub mod templates;
 
-use std::{net::TcpListener, sync::OnceLock};
+use std::{net::TcpListener, sync::OnceLock, time::Duration};
 
 use crate::server::router;
 
@@ -91,7 +91,7 @@ pub fn run(
             .wrap(cors)
             .wrap(Governor::new(
                 &GovernorConfigBuilder::default()
-                    .per_second(config.rate_limiter.time_limit as u64)
+                    .seconds_per_request(config.rate_limiter.time_limit as u64)
                     .burst_size(config.rate_limiter.number_of_requests as u32)
                     .finish()
                     .unwrap(),
@@ -110,9 +110,14 @@ pub fn run(
             .service(server::routes::search::search) // search page
             .service(router::about) // about page
             .service(router::settings) // settings page
+            .service(server::routes::export_import::download) // download page
             .default_service(web::route().to(router::not_found)) // error page
     })
     .workers(config.threads as usize)
+    // Set the keep-alive timer for client connections
+    .keep_alive(Duration::from_secs(
+        config.client_connection_keep_alive as u64,
+    ))
     // Start server on 127.0.0.1 with the user provided port number. for example 127.0.0.1:8080.
     .listen(listener)?
     .run();
