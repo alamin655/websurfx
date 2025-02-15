@@ -1,43 +1,42 @@
-FROM --platform=$BUILDPLATFORM rust:1.78.0-alpine3.18 AS chef
-# We only pay the installation cost once,
-# it will be cached from the second build onwards
+FROM --platform=$BUILDPLATFORM rust:1.84.0-alpine3.20 AS chef
+# Install system dependencies and cargo-chef.
 RUN apk add --no-cache alpine-sdk musl-dev g++ make libcrypto3 libressl-dev upx perl build-base
 RUN cargo install cargo-chef --locked
-
 WORKDIR /app
 
 FROM chef AS planner
+# Prepare dependency recipe.
 COPY ./Cargo.toml ./Cargo.lock ./
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM --platform=$BUILDPLATFORM chef AS builder
+# Copy recipe from planner.
 COPY --from=planner /app/recipe.json recipe.json
-# Specify the cache type to use (memory, redis, hybrid, no-cache)
+# Cache type: memory, redis, hybrid, or no-cache.
 ARG CACHE=memory
 ENV CACHE=${CACHE}
-# Cook the dependencies
-RUN export ARCH=$(uname -m) && \
-  if [ "$CACHE" = "memory" ] ; then cargo chef cook --release --target=$ARCH-unknown-linux-musl --recipe-path recipe.json ; \
-  else if [ "$CACHE" = "redis" ] ; then cargo chef cook --release --target=$ARCH-unknown-linux-musl --no-default-features --features redis-cache --recipe-path recipe.json ; \
-  else if [ "$CACHE" = "hybrid" ] ; then cargo chef cook --release --target=$ARCH-unknown-linux-musl --features redis-cache --recipe-path recipe.json ; \
-  else if [ "$CACHE" = "no-cache" ] ; then cargo chef cook --release --target=$ARCH-unknown-linux-musl --no-default-features --recipe-path recipe.json ; fi ; fi ; fi ; fi
-# Copy the source code and public folder
+# Get the target architecture from TARGETPLATFORM
+ARG TARGETPLATFORM
+RUN echo "TARGETPLATFORM: $TARGETPLATFORM"
+RUN export TARGETARCH=$(echo $TARGETPLATFORM | cut -d / -f 2) && echo "TARGETARCH: $TARGETARCH"
+
+# Cook dependencies.
+RUN cargo chef cook --release --target=$TARGETARCH-unknown-linux-musl --recipe-path recipe.json $( [ "$CACHE" = "redis" ] || [ "$CACHE" = "hybrid" ] && echo "--features redis-cache" ) $( [ "$CACHE" != "redis" ] && [ "$CACHE" != "memory" ] && echo "--no-default-features")
+# Copy source code.
 COPY ./src ./src
 COPY ./public ./public
-# Build the application
-RUN export ARCH=$(uname -m) && \
-  if [ "$CACHE" = "memory" ] ; then cargo build --release --target=$ARCH-unknown-linux-musl ; \
-  else if [ "$CACHE" = "redis" ] ; then cargo build --release --target=$ARCH-unknown-linux-musl --no-default-features --features redis-cache ; \
-  else if [ "$CACHE" = "hybrid" ] ; then cargo build --release --target=$ARCH-unknown-linux-musl --features redis-cache ; \
-  else if [ "$CACHE" = "no-cache" ] ; then cargo build --release --target=$ARCH-unknown-linux-musl --no-default-features ; fi ; fi ; fi ; fi
-# Optimise binary size with UPX
-RUN export ARCH=$(uname -m) \
-  && upx --lzma --best /app/target/$ARCH-unknown-linux-musl/release/websurfx \
-  && cp /app/target/$ARCH-unknown-linux-musl/release/websurfx /usr/local/bin/websurfx
+# Build application.
+RUN cargo build --release --target=$TARGETARCH-unknown-linux-musl $( [ "$CACHE" = "redis" ] || [ "$CACHE" = "hybrid" ] && echo "--features redis-cache" ) $( [ "$CACHE" != "redis" ] && [ "$CACHE" != "memory" ] && echo "--no-default-features")
+# Optimise binary size.
+RUN upx --lzma --best /app/target/$TARGETARCH-unknown-linux-musl/release/websurfx && \
+    cp /app/target/$TARGETARCH-unknown-linux-musl/release/websurfx /usr/local/bin/websurfx
 
-
-FROM --platform=$BUILDPLATFORM scratch
+FROM --platform=$TARGETPLATFORM scratch
+# Copy public directory.
 COPY --from=builder /app/public/ /opt/websurfx/public/
+# Configuration volume.
 VOLUME ["/etc/xdg/websurfx/"]
+# Copy optimized binary.
 COPY --from=builder /usr/local/bin/websurfx /usr/local/bin/websurfx
+# Run application.
 CMD ["websurfx"]
