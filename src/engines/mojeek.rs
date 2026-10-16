@@ -4,18 +4,18 @@
 
 use std::collections::HashMap;
 
-use reqwest::header::HeaderMap;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use scraper::Html;
 
-use crate::models::aggregation_models::SearchResult;
+use crate::models::aggregation::SearchResult;
 
-use crate::models::engine_models::{EngineError, SearchEngine};
+use crate::models::engine::{EngineError, EngineResult, SearchEngine};
 
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 
-use super::common::{build_cookie, build_query};
 use super::search_result_parser::SearchResultParser;
+use super::{build_cookie, build_query};
 
 /// A new Mojeek engine type defined in-order to implement the `SearchEngine` trait which allows to
 /// reduce code duplication as well as allows to create vector of different search engines easily.
@@ -26,7 +26,7 @@ pub struct Mojeek {
 
 impl Mojeek {
     /// Creates the Mojeek parser.
-    pub fn new() -> Result<Self, EngineError> {
+    pub fn new() -> EngineResult<Self> {
         Ok(Self {
             parser: SearchResultParser::new(
                 ".result-col",
@@ -48,7 +48,7 @@ impl SearchEngine for Mojeek {
         user_agent: &str,
         client: &Client,
         safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
         // Mojeek uses `start results from this number` convention
         // So, for 10 results per page, page 0 starts at 1, page 1
         // starts at 11, and so on.
@@ -110,15 +110,10 @@ impl SearchEngine for Mojeek {
 
         let query_params_string = build_query(&query_params);
 
-        let url: String = match page {
-            0 => {
-                format!("https://www.mojeek.com/search?q={query}{query_params_string}")
-            }
-            _ => {
-                format!(
-                    "https://www.mojeek.com/search?q={query}&s={start_result}{query_params_string}"
-                )
-            }
+        let url: String = if page == 0 {
+            format!("https://www.mojeek.com/search?q={query}{query_params_string}")
+        } else {
+            format!("https://www.mojeek.com/search?q={query}&s={start_result}{query_params_string}")
         };
 
         let cookie_string = build_cookie(&query_params);
@@ -138,13 +133,12 @@ impl SearchEngine for Mojeek {
             &Mojeek::fetch_html_from_upstream(self, &url, header_map, client).await?,
         );
 
-        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(0) {
-            if no_result_msg
+        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(0)
+            && no_result_msg
                 .inner_html()
                 .contains("No pages found matching:")
-            {
-                return Err(Report::new(EngineError::EmptyResultSet));
-            }
+        {
+            return Err(Report::new(EngineError::EmptyResultSet));
         }
 
         // scrape all the results from the html

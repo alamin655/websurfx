@@ -2,15 +2,15 @@
 //! by querying the upstream searx search engine instance with user provided query and with a page
 //! number if provided.
 
-use reqwest::header::HeaderMap;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use scraper::Html;
 use std::collections::HashMap;
 
 use super::search_result_parser::SearchResultParser;
-use crate::models::aggregation_models::SearchResult;
-use crate::models::engine_models::{EngineError, SearchEngine};
-use error_stack::{Report, Result, ResultExt};
+use crate::models::aggregation::SearchResult;
+use crate::models::engine::{EngineError, EngineResult, SearchEngine};
+use error_stack::{Report, ResultExt};
 
 /// A new Searx engine type defined in-order to implement the `SearchEngine` trait which allows to
 /// reduce code duplication as well as allows to create vector of different search engines easily.
@@ -21,7 +21,7 @@ pub struct Searx {
 
 impl Searx {
     /// creates a Searx parser
-    pub fn new() -> Result<Searx, EngineError> {
+    pub fn new() -> EngineResult<Searx> {
         Ok(Self {
             parser: SearchResultParser::new(
                 "#urls>.dialog-error>p",
@@ -43,7 +43,7 @@ impl SearchEngine for Searx {
         user_agent: &str,
         client: &Client,
         mut safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
         // A branchless condition to check whether the `safe_search` parameter has the
         // value greater than equal to three or not. If it is, then it modifies the
         // `safesearch` parameters value to 2.
@@ -77,12 +77,11 @@ impl SearchEngine for Searx {
             &Searx::fetch_html_from_upstream(self, &url, header_map, client).await?,
         );
 
-        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(1) {
-            if no_result_msg.inner_html()
-            == "we didn't find any results. Please use another query or search in more categories"
+        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(1)
+            && no_result_msg.inner_html()
+                == "we didn't find any results. Please use another query or search in more categories"
         {
             return Err(Report::new(EngineError::EmptyResultSet));
-        }
         }
 
         // scrape all the results from the html

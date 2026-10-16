@@ -5,8 +5,9 @@
 #[cfg(not(feature = "dhat-heap"))]
 use mimalloc::MiMalloc;
 
-use std::{net::TcpListener, sync::OnceLock};
-use websurfx::{cache::cacher::create_cache, config::parser::Config, run};
+use tokio::net::TcpListener;
+use tokio::sync::OnceCell;
+use websurfx::{parser::Config, run};
 
 /// A dhat heap memory profiler
 #[cfg(feature = "dhat-heap")]
@@ -18,7 +19,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 /// A static constant for holding the parsed config.
-static CONFIG: OnceLock<Config> = OnceLock::new();
+static CONFIG: OnceCell<Config> = OnceCell::const_new();
 
 /// The function that launches the main server and registers all the routes of the website.
 ///
@@ -27,15 +28,19 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
 /// Returns an error if the port is being used by something else on the system and is not
 /// available for being used for other applications.
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> tokio::io::Result<()> {
     // A dhat heap profiler initialization.
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
     // Initialize the parsed config globally.
-    let config = CONFIG.get_or_init(|| Config::parse(false).unwrap());
-
-    let cache = create_cache(config).await;
+    let config = CONFIG
+        .get_or_try_init(|| async move {
+            Config::parse(false)
+                .await
+                .map_err(|e| tokio::io::Error::other(e.to_string()))
+        })
+        .await?;
 
     log::info!(
         "started server on port {} and IP {}",
@@ -48,7 +53,7 @@ async fn main() -> std::io::Result<()> {
         config.port,
     );
 
-    let listener = TcpListener::bind((config.binding_ip.as_str(), config.port))?;
+    let listener = TcpListener::bind((config.binding_ip.as_str(), config.port)).await?;
 
-    run(listener, config, cache)?.await
+    run(listener, config).await?.await
 }

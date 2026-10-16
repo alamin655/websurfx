@@ -3,11 +3,14 @@
 //! when requested.
 
 use crate::{
-    config::parser::Config,
-    handler::{file_path, FileType},
+    handler::{FileType, file_path},
+    parser::Config,
 };
-use actix_web::{get, http::header::ContentType, web, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, get, http::header::ContentType, web};
 use tokio::fs::read_to_string;
+
+pub mod export_import;
+pub mod search;
 
 /// Handles the route of index page or main page of the `websurfx` meta search engine website.
 #[get("/")]
@@ -43,9 +46,27 @@ pub async fn not_found(
 #[get("/robots.txt")]
 pub async fn robots_data(_req: HttpRequest) -> Result<HttpResponse, Box<dyn std::error::Error>> {
     let page_content: String =
-        read_to_string(format!("{}/robots.txt", file_path(FileType::Theme)?)).await?;
+        read_to_string(format!("{}/robots.txt", file_path(FileType::Theme).await?)).await?;
     Ok(HttpResponse::Ok()
         .content_type(ContentType::plaintext())
+        .body(page_content))
+}
+
+/// Handles the `/websurfx.xml` route that serves the OpenSearch description
+/// document for the `websurfx` meta search engine, allowing browsers to
+/// auto-discover and register it as a search provider.
+#[get("/websurfx.xml")]
+pub async fn opensearch_description(
+    _req: HttpRequest,
+) -> Result<HttpResponse, Box<dyn std::error::Error>> {
+    let page_content: String = read_to_string(format!(
+        "{}/websurfx.xml",
+        file_path(FileType::Theme).await?
+    ))
+    .await?;
+    let content_type = ContentType("application/opensearchdescription+xml".parse()?);
+    Ok(HttpResponse::Ok()
+        .insert_header(content_type)
         .body(page_content))
 }
 
@@ -76,7 +97,8 @@ pub async fn settings(
             &config.style.theme,
             &config.style.animation,
             &config.upstream_search_engines,
-        )?
+        )
+        .await?
         .0,
     ))
 }

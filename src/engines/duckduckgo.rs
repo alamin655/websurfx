@@ -4,15 +4,15 @@
 
 use std::collections::HashMap;
 
-use reqwest::header::HeaderMap;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use scraper::Html;
 
-use crate::models::aggregation_models::SearchResult;
+use crate::models::aggregation::SearchResult;
 
-use crate::models::engine_models::{EngineError, SearchEngine};
+use crate::models::engine::{EngineError, EngineResult, SearchEngine};
 
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 
 use super::search_result_parser::SearchResultParser;
 
@@ -25,7 +25,7 @@ pub struct DuckDuckGo {
 
 impl DuckDuckGo {
     /// Creates the DuckDuckGo parser.
-    pub fn new() -> Result<Self, EngineError> {
+    pub fn new() -> EngineResult<Self> {
         Ok(Self {
             parser: SearchResultParser::new(
                 ".no-results",
@@ -47,20 +47,17 @@ impl SearchEngine for DuckDuckGo {
         user_agent: &str,
         client: &Client,
         _safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
         // Page number can be missing or empty string and so appropriate handling is required
         // so that upstream server recieves valid page number.
-        let url: String = match page {
-            0 => {
-                format!("https://html.duckduckgo.com/html/?q={query}&s=&dc=&v=1&o=json&api=/d.js")
-            }
-            _ => {
-                format!(
-                    "https://duckduckgo.com/html/?q={query}&s={}&dc={}&v=1&o=json&api=/d.js",
-                    page * 30,
-                    page * 30 + 1
-                )
-            }
+        let url: String = if page == 0 {
+            format!("https://html.duckduckgo.com/html/?q={query}&s=&dc=&v=1&o=json&api=/d.js")
+        } else {
+            format!(
+                "https://duckduckgo.com/html/?q={query}&s={}&dc={}&v=1&o=json&api=/d.js",
+                page * 30,
+                page * 30 + 1
+            )
         };
 
         // initializing HeaderMap and adding appropriate headers.
