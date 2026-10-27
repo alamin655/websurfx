@@ -1,10 +1,14 @@
-//! This module provides the error enum to handle different errors associated while requesting data from
-//! the upstream search engines with the search query provided by the user.
+//! Error models and search engine traits for upstream search providers.
 
-use super::aggregation_models::SearchResult;
-use error_stack::{Report, Result, ResultExt};
+use super::aggregation::SearchResult;
+use error_stack::{Report, ResultExt};
 use reqwest::Client;
 use std::fmt;
+
+/// Maximum allowed response body size (2 MiB) for upstream engine responses.
+///
+/// Prevents denial-of-service from memory exhaustion or decompression bombs.
+pub const MAX_UPSTREAM_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
 /// A custom error type used for handle engine associated errors.
 #[derive(Debug)]
@@ -46,7 +50,10 @@ impl fmt::Display for EngineError {
     }
 }
 
-impl error_stack::Context for EngineError {}
+/// An alias type for handling the engine results.
+pub type EngineResult<T> = Result<T, Report<EngineError>>;
+
+impl std::error::Error for EngineError {}
 
 /// A trait to define common behavior for all search engines.
 #[async_trait::async_trait]
@@ -73,17 +80,38 @@ pub trait SearchEngine: Sync + Send {
         url: &str,
         header_map: reqwest::header::HeaderMap,
         client: &Client,
-    ) -> Result<String, EngineError> {
-        // fetch the html from upstream search engine
-        Ok(client
+    ) -> EngineResult<String> {
+        let mut resp = client
             .get(url)
-            .headers(header_map) // add spoofed headers to emulate human behavior
+            .headers(header_map)
             .send()
             .await
-            .change_context(EngineError::RequestError)?
-            .text()
+            .change_context(EngineError::RequestError)?;
+
+        if let Some(len) = resp.content_length()
+            && len > MAX_UPSTREAM_RESPONSE_BYTES as u64
+        {
+            return Err(Report::new(EngineError::RequestError).attach(format!(
+                "Upstream response length {len} exceeds limit of {MAX_UPSTREAM_RESPONSE_BYTES} bytes"
+            )));
+        }
+
+        let mut body = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
             .await
-            .change_context(EngineError::RequestError)?)
+            .change_context(EngineError::RequestError)?
+        {
+            if body.len() + chunk.len() > MAX_UPSTREAM_RESPONSE_BYTES {
+                return Err(Report::new(EngineError::RequestError).attach(format!(
+                    "Upstream response exceeded limit of {MAX_UPSTREAM_RESPONSE_BYTES} bytes"
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        Ok(String::from_utf8(body)
+            .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string()))
     }
 
     /// This helper function fetches/requests the json search results from the upstream search engine as a vector of bytes.
@@ -107,19 +135,37 @@ pub trait SearchEngine: Sync + Send {
         url: &str,
         header_map: reqwest::header::HeaderMap,
         client: &Client,
-    ) -> Result<Vec<u8>, EngineError> {
-        // fetch the json response from upstream search engine
-
-        Ok(client
+    ) -> EngineResult<Vec<u8>> {
+        let mut resp = client
             .get(url)
-            .headers(header_map) // add spoofed headers to emulate human behavior
+            .headers(header_map)
             .send()
             .await
-            .change_context(EngineError::RequestError)?
-            .bytes()
+            .change_context(EngineError::RequestError)?;
+
+        if let Some(len) = resp.content_length()
+            && len > MAX_UPSTREAM_RESPONSE_BYTES as u64
+        {
+            return Err(Report::new(EngineError::RequestError).attach(format!(
+                "Upstream response length {len} exceeds limit of {MAX_UPSTREAM_RESPONSE_BYTES} bytes"
+            )));
+        }
+
+        let mut body = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
             .await
             .change_context(EngineError::RequestError)?
-            .to_vec())
+        {
+            if body.len() + chunk.len() > MAX_UPSTREAM_RESPONSE_BYTES {
+                return Err(Report::new(EngineError::RequestError).attach(format!(
+                    "Upstream response exceeded limit of {MAX_UPSTREAM_RESPONSE_BYTES} bytes"
+                )));
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        Ok(body)
     }
 
     /// This function scrapes results from the upstream engine and puts all the scraped results like
@@ -147,7 +193,7 @@ pub trait SearchEngine: Sync + Send {
         user_agent: &str,
         client: &Client,
         safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError>;
+    ) -> EngineResult<Vec<(String, SearchResult)>>;
 }
 
 /// A named struct which stores the engine struct with the name of the associated engine.
@@ -175,7 +221,7 @@ impl EngineHandler {
     /// # Returns
     ///
     /// It returns an option either containing the value or a none if the engine is unknown
-    pub fn new(engine_name: &str) -> Result<Self, EngineError> {
+    pub fn new(engine_name: &str) -> EngineResult<Self> {
         let engine: (&'static str, Box<dyn SearchEngine>) =
             match engine_name.to_lowercase().as_str() {
                 "duckduckgo" => {
@@ -210,10 +256,22 @@ impl EngineHandler {
                     let engine = crate::engines::wikipedia::Wikipedia::new("en")?;
                     ("wikipedia", Box::new(engine))
                 }
+                "yahoo" => {
+                    let engine = crate::engines::yahoo::Yahoo::new()?;
+                    ("yahoo", Box::new(engine))
+                }
+                "qwant" => {
+                    let engine = crate::engines::qwant::Qwant::new()?;
+                    ("qwant", Box::new(engine))
+                }
+                "sepiasearch" => {
+                    let engine = crate::engines::sepiasearch::SepiaSearch::new()?;
+                    ("sepiasearch", Box::new(engine))
+                }
                 _ => {
                     return Err(Report::from(EngineError::NoSuchEngineFound(
                         engine_name.to_string(),
-                    )))
+                    )));
                 }
             };
 

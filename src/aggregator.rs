@@ -1,33 +1,36 @@
 //! This module provides the functionality to scrape and gathers all the results from the upstream
 //! search engines and then removes duplicate results.
 
-use super::user_agent::random_user_agent;
-use crate::config::parser::Config;
-use crate::handler::{file_path, FileType};
+use crate::handler::{FileType, file_path};
 use crate::models::{
-    aggregation_models::{EngineErrorInfo, SearchResult, SearchResults},
-    engine_models::{EngineError, EngineHandler},
+    aggregation::{EngineErrorInfo, SearchResult, SearchResults},
+    engine::{EngineError, EngineHandler},
 };
+use crate::parser::Config;
 
 use error_stack::Report;
-use futures::stream::FuturesUnordered;
-use regex::Regex;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::slice::ParallelSliceMut;
 use reqwest::{Client, ClientBuilder};
 use std::sync::Arc;
+use tokio::task::JoinSet;
 use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
-    task::JoinHandle,
     time::Duration,
 };
 
 /// A constant for holding the prebuilt Client globally in the app.
 static CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
 
-/// Aliases for long type annotations
+/// An alias for the tuple returned by upstream engine tasks: (engine_name, result).
+type FutureResult = (
+    &'static str,
+    Result<Vec<(String, SearchResult)>, Report<EngineError>>,
+);
 
-type FutureVec =
-    FuturesUnordered<JoinHandle<Result<Vec<(String, SearchResult)>, Report<EngineError>>>>;
+/// Aliases for long type annotations
+type FutureVec = JoinSet<FutureResult>;
 
 /// The function aggregates the scraped results from the user-selected upstream search engines.
 /// These engines can be chosen either from the user interface (UI) or from the configuration file.
@@ -56,79 +59,77 @@ type FutureVec =
 ///
 /// * `query` - Accepts a string to query with the above upstream search engines.
 /// * `page` - Accepts an u32 page number.
-/// * `random_delay` - Accepts a boolean value to add a random delay before making the request.
-/// * `debug` - Accepts a boolean value to enable or disable debug mode option.
-/// * `upstream_search_engines` - Accepts a vector of search engine names which was selected by the
-/// * `request_timeout` - Accepts a time (secs) as a value which controls the server request timeout.
+/// * `config` - Accepts a reference to the parsed application `Config`.
+/// * `upstream_search_engines` - Accepts a slice of search engine handlers selected by the
 ///   user through the UI or the config file.
+/// * `safe_search` - Accepts an u8 safe search level.
+/// * `user_agent` - Accepts a static user agent string to use for the upstream requests.
 ///
 /// # Error
 ///
-/// Returns an error a reqwest and scraping selector errors if any error occurs in the results
-/// function in either `searx` or `duckduckgo` or both otherwise returns a `SearchResults struct`
-/// containing appropriate values.
+/// Returns an error if any fatal error occurs during result fetching, filtering, or processing;
+/// otherwise returns a `SearchResults` struct containing appropriate values.
 pub async fn aggregate(
     query: &str,
     page: u32,
     config: &Config,
     upstream_search_engines: &[EngineHandler],
     safe_search: u8,
+    user_agent: &'static str,
 ) -> Result<SearchResults, Box<dyn std::error::Error>> {
     let client = CLIENT.get_or_init(|| {
         let mut cb = ClientBuilder::new()
             .timeout(Duration::from_secs(config.request_timeout as u64)) // Add timeout to request to avoid DDOSing the server
+            .redirect(reqwest::redirect::Policy::none()) // Prevent SSRF and open redirect hopping
             .pool_idle_timeout(Duration::from_secs(
                 config.pool_idle_connection_timeout as u64,
             ))
             .tcp_keepalive(Duration::from_secs(config.tcp_connection_keep_alive as u64))
             .pool_max_idle_per_host(config.number_of_https_connections as usize)
             .connect_timeout(Duration::from_secs(config.request_timeout as u64)) // Add timeout to request to avoid DDOSing the server
-            .use_rustls_tls()
-            .tls_built_in_root_certs(config.operating_system_tls_certificates)
+            .tls_backend_rustls()
             .https_only(true)
             .gzip(true)
             .brotli(true)
             .http2_adaptive_window(config.adaptive_window);
 
+        if !config.operating_system_tls_certificates {
+            cb = cb.tls_certs_only(
+                webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                    .iter()
+                    .filter_map(|cert| reqwest::Certificate::from_der(cert.as_ref()).ok()),
+            );
+        }
+
         if config.proxy.is_some() {
             cb = cb.proxy(config.proxy.clone().unwrap());
         }
 
-        cb.build().unwrap()
+        cb.build()
+            .expect("Failed to initialize upstream HTTP client")
     });
 
-    let user_agent: &str = random_user_agent();
-
-    let mut names: Vec<&str> = Vec::with_capacity(0);
-
     // create tasks for upstream result fetching
-    let tasks: FutureVec = FutureVec::new();
+    let mut tasks: FutureVec = JoinSet::new();
 
     let query: Arc<String> = Arc::new(query.to_string());
     for engine_handler in upstream_search_engines {
         let (name, search_engine) = engine_handler.clone().into_name_engine();
-        names.push(name);
         let query_partially_cloned = query.clone();
-        tasks.push(tokio::spawn(async move {
-            search_engine
-                .results(
-                    &query_partially_cloned,
-                    page,
-                    user_agent,
-                    client,
-                    safe_search,
-                )
-                .await
-        }));
-    }
-
-    // get upstream responses
-    let mut responses = Vec::with_capacity(tasks.len());
-
-    for task in tasks {
-        if let Ok(result) = task.await {
-            responses.push(result)
-        }
+        tasks.spawn(async move {
+            (
+                name,
+                search_engine
+                    .results(
+                        &query_partially_cloned,
+                        page,
+                        user_agent,
+                        client,
+                        safe_search,
+                    )
+                    .await,
+            )
+        });
     }
 
     // aggregate search results, removing duplicates and handling errors the upstream engines returned
@@ -137,35 +138,32 @@ pub async fn aggregate(
 
     let mut handle_error = |error: &Report<EngineError>, engine_name: &'static str| {
         log::error!("Engine Error: {:?}", error);
-        engine_errors_info.push(EngineErrorInfo::new(
-            error.downcast_ref::<EngineError>().unwrap(),
-            engine_name,
-        ));
+        let engine_error = error
+            .downcast_ref::<EngineError>()
+            .unwrap_or(&EngineError::UnexpectedError);
+        engine_errors_info.push(EngineErrorInfo::new(engine_error, engine_name));
     };
 
-    for _ in 0..responses.len() {
-        let response = responses.pop().unwrap();
-        let engine = names.pop().unwrap();
-
-        if result_map.is_empty() {
-            match response {
-                Ok(results) => result_map = results,
-                Err(error) => handle_error(&error, engine),
-            };
-            continue;
-        }
-
-        match response {
-            Ok(result) => {
-                result.into_iter().for_each(|(key, value)| {
-                    match result_map.iter().find(|(key_s, _)| key_s == &key) {
-                        Some(value) => value.1.to_owned().add_engines(engine),
-                        None => result_map.push((key, value)),
-                    };
-                });
+    while let Some(res) = tasks.join_next().await {
+        match res {
+            Ok((engine, Ok(result))) => {
+                for (key, value) in result {
+                    if let Some((_, existing_value)) =
+                        result_map.iter_mut().find(|(key_s, _)| key_s == &key)
+                    {
+                        existing_value.add_engines(engine);
+                    } else {
+                        result_map.push((key, value));
+                    }
+                }
             }
-            Err(error) => handle_error(&error, engine),
-        };
+            Ok((engine, Err(error))) => {
+                handle_error(&error, engine);
+            }
+            Err(join_error) => {
+                log::error!("Task join error: {:?}", join_error);
+            }
+        }
     }
 
     if safe_search >= 3 {
@@ -173,30 +171,36 @@ pub async fn aggregate(
         filter_with_lists(
             &mut result_map,
             &mut blacklist_map,
-            file_path(FileType::BlockList)?,
+            &file_path(FileType::BlockList).await?,
         )
         .await?;
 
         filter_with_lists(
             &mut blacklist_map,
             &mut result_map,
-            file_path(FileType::AllowList)?,
+            &file_path(FileType::AllowList).await?,
         )
         .await?;
 
         drop(blacklist_map);
     }
 
-    let mut results: Box<[SearchResult]> = result_map
-        .into_iter()
-        .map(|(_, mut value)| {
-            if !value.url.contains("temu.com") {
-                value.calculate_relevance(query.as_str())
-            }
-            value
-        })
-        .collect();
-    sort_search_results(&mut results);
+    let results: Box<[SearchResult]> = tokio::task::spawn_blocking(move || {
+        let mut unsorted_results: Box<[SearchResult]> = result_map
+            .into_par_iter()
+            .map(|(_, mut value)| {
+                if !value.url.contains("temu.com") {
+                    value.calculate_relevance(query.as_str())
+                }
+                value
+            })
+            .collect();
+
+        sort_search_results(&mut unsorted_results);
+
+        unsorted_results
+    })
+    .await?;
 
     Ok(SearchResults::new(
         results,
@@ -222,27 +226,31 @@ pub async fn filter_with_lists(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let reader = BufReader::new(File::open(file_path).await?);
     let mut lines = reader.lines();
+    let mut patterns = Vec::new();
 
     while let Some(line) = lines.next_line().await? {
-        let re = Regex::new(line.trim())?;
+        let trimmed = line.trim().to_string();
+        if !trimmed.is_empty() {
+            patterns.push(trimmed);
+        }
+    }
 
-        let mut length = map_to_be_filtered.len();
-        let mut idx: usize = Default::default();
-        // Iterate over each search result in the map and check if it matches the regex pattern
-        while idx < length {
-            let ele = &map_to_be_filtered[idx];
-            let ele_inner = &ele.1;
-            match re.is_match(&ele.0.to_lowercase())
-                || re.is_match(&ele_inner.title.to_lowercase())
-                || re.is_match(&ele_inner.description.to_lowercase())
-            {
-                true => {
-                    // If the search result matches the regex pattern, move it from the original map to the resultant map
-                    resultant_map.push(map_to_be_filtered.swap_remove(idx));
-                    length -= 1;
-                }
-                false => idx += 1,
-            };
+    if patterns.is_empty() {
+        return Ok(());
+    }
+
+    let set = regex::RegexSet::new(&patterns)?;
+
+    let mut idx = 0;
+    while idx < map_to_be_filtered.len() {
+        let (url, res) = &map_to_be_filtered[idx];
+        let url_lower = url.to_lowercase();
+        let title_lower = res.title.to_lowercase();
+        let desc_lower = res.description.to_lowercase();
+        if set.is_match(&url_lower) || set.is_match(&title_lower) || set.is_match(&desc_lower) {
+            resultant_map.push(map_to_be_filtered.swap_remove(idx));
+        } else {
+            idx += 1;
         }
     }
 
@@ -252,16 +260,17 @@ pub async fn filter_with_lists(
 /// Sorts  SearchResults by relevance score.
 /// <br> sort_unstable is used as its faster,stability is not an issue on our side.
 /// For reasons why, check out [`this`](https://rust-lang.github.io/rfcs/1884-unstable-sort.html)
+///
 ///  # Arguments
+///
 ///  * `results` - A mutable slice or Vec of SearchResults
-///  
 fn sort_search_results(results: &mut [SearchResult]) {
-    results.sort_unstable_by(|a, b| {
+    results.par_sort_unstable_by(|a, b| {
         use std::cmp::Ordering;
 
         b.relevance_score
             .partial_cmp(&a.relevance_score)
-            .unwrap_or(Ordering::Less)
+            .unwrap_or(Ordering::Equal)
     })
 }
 
@@ -312,12 +321,16 @@ mod tests {
         .await?;
 
         assert_eq!(resultant_map.len(), 2);
-        assert!(resultant_map
-            .iter()
-            .any(|(key, _)| key == "https://www.example.com"));
-        assert!(resultant_map
-            .iter()
-            .any(|(key, _)| key == "https://www.rust-lang.org/"));
+        assert!(
+            resultant_map
+                .iter()
+                .any(|(key, _)| key == "https://www.example.com")
+        );
+        assert!(
+            resultant_map
+                .iter()
+                .any(|(key, _)| key == "https://www.rust-lang.org/")
+        );
         assert_eq!(map_to_be_filtered.len(), 0);
 
         Ok(())
@@ -363,13 +376,17 @@ mod tests {
         .await?;
 
         assert_eq!(resultant_map.len(), 1);
-        assert!(resultant_map
-            .iter()
-            .any(|(key, _)| key == "https://www.example.com"));
+        assert!(
+            resultant_map
+                .iter()
+                .any(|(key, _)| key == "https://www.example.com")
+        );
         assert_eq!(map_to_be_filtered.len(), 1);
-        assert!(map_to_be_filtered
-            .iter()
-            .any(|(key, _)| key == "https://www.rust-lang.org/"));
+        assert!(
+            map_to_be_filtered
+                .iter()
+                .any(|(key, _)| key == "https://www.rust-lang.org/")
+        );
 
         Ok(())
     }
@@ -419,5 +436,89 @@ mod tests {
         );
 
         assert!(result.await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_filter_with_lists_empty_lines() -> Result<(), Box<dyn std::error::Error>> {
+        let mut map_to_be_filtered = vec![(
+            "https://www.rust-lang.org/".to_owned(),
+            SearchResult {
+                title: "Rust".to_owned(),
+                url: "https://www.rust-lang.org/".to_owned(),
+                description: "Rust language".to_owned(),
+                engine: vec!["Google".to_owned()],
+                relevance_score: 0.0,
+            },
+        )];
+
+        // Create a temporary file with empty lines and whitespace
+        let mut file = NamedTempFile::new()?;
+        writeln!(file)?;
+        writeln!(file, "   ")?;
+        writeln!(file, "\n")?;
+        file.flush()?;
+
+        let mut resultant_map = Vec::new();
+        filter_with_lists(
+            &mut map_to_be_filtered,
+            &mut resultant_map,
+            file.path().to_str().unwrap(),
+        )
+        .await?;
+
+        // Empty lines should not match and should not filter out results
+        assert_eq!(resultant_map.len(), 0);
+        assert_eq!(map_to_be_filtered.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sort_search_results() {
+        let mut results = vec![
+            SearchResult {
+                title: "Low".to_owned(),
+                url: "https://low.com".to_owned(),
+                description: "Low score".to_owned(),
+                engine: vec!["Google".to_owned()],
+                relevance_score: 0.1,
+            },
+            SearchResult {
+                title: "High".to_owned(),
+                url: "https://high.com".to_owned(),
+                description: "High score".to_owned(),
+                engine: vec!["DuckDuckGo".to_owned()],
+                relevance_score: 0.9,
+            },
+            SearchResult {
+                title: "Mid".to_owned(),
+                url: "https://mid.com".to_owned(),
+                description: "Mid score".to_owned(),
+                engine: vec!["Bing".to_owned()],
+                relevance_score: 0.5,
+            },
+        ];
+
+        sort_search_results(&mut results);
+
+        assert_eq!(results[0].title, "High");
+        assert_eq!(results[1].title, "Mid");
+        assert_eq!(results[2].title, "Low");
+    }
+
+    /// Test that webpki roots produce a nonempty list of certificates and can configure the client.
+    #[test]
+    fn test_rustls_root_certs_nonempty() {
+        let roots: Vec<reqwest::Certificate> = webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .filter_map(|cert| reqwest::Certificate::from_der(cert.as_ref()).ok())
+            .collect();
+        assert!(!roots.is_empty());
+        assert!(roots.len() > 100);
+
+        let cb = ClientBuilder::new()
+            .tls_backend_rustls()
+            .tls_certs_only(roots);
+        assert!(cb.build().is_ok());
     }
 }

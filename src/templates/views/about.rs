@@ -1,6 +1,6 @@
 //! A module that handles the view for the about page in the `websurfx` frontend.
 
-use maud::{html, Markup, PreEscaped};
+use maud::{Markup, PreEscaped, html};
 
 use crate::templates::partials::{footer::footer, header::header};
 
@@ -140,7 +140,7 @@ pub fn about(colorscheme: &str, theme: &str, animation: &Option<String>) -> Mark
                         }
                         div class="feature-card-body" {
                             p {
-                                "Websurfx comes with 9 built-in color themes and supports creating custom themes effortlessly."
+                                "Websurfx comes with 15 built-in color themes and supports creating custom themes effortlessly."
                             }
                         }
                     }

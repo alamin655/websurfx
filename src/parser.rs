@@ -1,11 +1,10 @@
-//! This module provides the functionality to parse the lua config and convert the config options
-//! into rust readable form.
+//! Configuration parser and models for `config.lua`.
 
-use crate::handler::{file_path, FileType};
+use crate::handler::{FileType, file_path};
 
-use crate::models::parser_models::{AggregatorConfig, RateLimiter, Style};
+use crate::models::parser::{AggregatorConfig, RateLimiter, Style};
 use log::LevelFilter;
-use mlua::Lua;
+use mlua::{Lua, LuaOptions, StdLib};
 use reqwest::Proxy;
 use std::{collections::HashMap, fs, thread::available_parallelism};
 
@@ -55,6 +54,9 @@ pub struct Config {
     pub number_of_https_connections: u8,
     /// It stores the operating system's TLS certificates for https requests.
     pub operating_system_tls_certificates: bool,
+    /// It stores the http-caching's validity time that is how long the http cache will remain
+    /// valid for all the resources that was loaded on the page.
+    pub http_cache_expiry_time: u8,
 }
 
 impl Config {
@@ -71,18 +73,26 @@ impl Config {
     /// Returns a lua parse error if parsing of the config.lua file fails or has a syntax error
     /// or io error if the config.lua file doesn't exists otherwise it returns a newly constructed
     /// Config struct with all the parsed config options from the parsed config file.
-    pub fn parse(logging_initialized: bool) -> Result<Self, Box<dyn std::error::Error>> {
-        let lua = Lua::new();
+    pub async fn parse(logging_initialized: bool) -> Result<Self, Box<dyn std::error::Error>> {
+        // Restrict Lua execution to safe math/string/table standard libraries (no os/io/package/debug)
+        let lua = Lua::new_with(
+            StdLib::TABLE | StdLib::STRING | StdLib::MATH,
+            LuaOptions::default(),
+        )?;
         let globals = lua.globals();
 
-        lua.load(&fs::read_to_string(file_path(FileType::Config)?)?)
-            .exec()?;
+        lua.load(&fs::read_to_string(file_path(FileType::Config).await?)?)
+            .exec_async()
+            .await?;
 
         let parsed_threads: u8 = globals.get("threads")?;
 
         let debug: bool = globals.get("debug")?;
         let logging: bool = globals.get("logging")?;
-        let adaptive_window: bool = globals.get("adaptive_window")?;
+        let adaptive_window: bool = globals
+            .get("adaptive_window")
+            .or_else(|_| globals.get("https_adaptive_window_size"))
+            .unwrap_or(true);
 
         if !logging_initialized {
             set_logging_level(debug, logging);
@@ -101,71 +111,82 @@ impl Config {
 
         let rate_limiter: HashMap<String, u8> = globals.get("rate_limiter")?;
 
-        let parsed_safe_search: u8 = globals.get::<_>("safe_search")?;
-        let safe_search: u8 = match parsed_safe_search {
-            0..=4 => parsed_safe_search,
-            _ => {
-                log::error!("Config Error: The value of `safe_search` option should be a non zero positive integer from 0 to 4.");
-                log::error!("Falling back to using the value `1` for the option");
-                1
-            }
+        let parsed_safe_search: u8 = globals.get("safe_search")?;
+        let safe_search: u8 = if parsed_safe_search <= 4 {
+            parsed_safe_search
+        } else {
+            log::error!(
+                "Config Error: The value of `safe_search` option should be a non zero positive integer from 0 to 4."
+            );
+            log::error!("Falling back to using the value `1` for the option");
+            1
         };
 
         #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
-        let parsed_cet = globals.get::<_>("cache_expiry_time")?;
+        let parsed_cet = globals.get("cache_expiry_time")?;
         #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
-        let cache_expiry_time = match parsed_cet {
-            0..=59 => {
-                log::error!(
-                    "Config Error: The value of `cache_expiry_time` must be greater than 60"
-                );
-                log::error!("Falling back to using the value `60` for the option");
-                60
-            }
-            _ => parsed_cet,
+        let cache_expiry_time = if parsed_cet < 60 {
+            log::error!("Config Error: The value of `cache_expiry_time` must be greater than 60");
+            log::error!("Falling back to using the value `60` for the option");
+            60
+        } else {
+            parsed_cet
         };
 
-        let proxy_opt: Option<String> = globals.get::<_>("proxy")?;
+        let proxy_opt: Option<String> = globals.get("proxy")?;
         let proxy = proxy_opt.and_then(|proxy_str| {
-            Proxy::all(proxy_str).ok().and_then(|_| {
-                log::error!("Invalid proxy url, defaulting to no proxy.");
-                None
-            })
+            Proxy::all(proxy_str)
+                .inspect_err(|err| {
+                    log::error!("Invalid proxy url, defaulting to no proxy: {}", err);
+                })
+                .ok()
         });
 
+        let parsed_hcet = globals.get("http_cache_expiry_time")?;
+        let http_cache_expiry_time = if parsed_hcet < 60 {
+            log::error!("Config Error: The value of `http_cache_expiry_time` must be at least 60");
+            log::error!("Falling back to using the value `60` for the option");
+            60
+        } else {
+            parsed_hcet
+        };
+
         Ok(Config {
-            operating_system_tls_certificates: globals
-                .get::<_>("operating_system_tls_certificates")?,
-            port: globals.get::<_>("port")?,
-            binding_ip: globals.get::<_>("binding_ip")?,
+            operating_system_tls_certificates: globals.get("operating_system_tls_certificates")?,
+            port: globals.get("port")?,
+            binding_ip: globals.get("binding_ip")?,
             style: Style::new(
-                globals.get::<_>("theme")?,
-                globals.get::<_>("colorscheme")?,
-                globals.get::<_>("animation")?,
+                globals.get("theme")?,
+                globals.get("colorscheme")?,
+                globals.get("animation")?,
             ),
             #[cfg(feature = "redis-cache")]
-            redis_url: globals.get::<_>("redis_url")?,
+            redis_url: globals.get("redis_url")?,
             aggregator: AggregatorConfig {
-                random_delay: globals.get::<_>("production_use")?,
+                random_delay: globals.get("production_use")?,
             },
             logging,
             debug,
             adaptive_window,
-            upstream_search_engines: globals.get::<_>("upstream_search_engines")?,
-            request_timeout: globals.get::<_>("request_timeout")?,
-            tcp_connection_keep_alive: globals.get::<_>("tcp_connection_keep_alive")?,
-            pool_idle_connection_timeout: globals.get::<_>("pool_idle_connection_timeout")?,
-            number_of_https_connections: globals.get::<_>("number_of_https_connections")?,
+            upstream_search_engines: globals.get("upstream_search_engines")?,
+            request_timeout: globals.get("request_timeout")?,
+            tcp_connection_keep_alive: globals.get("tcp_connection_keep_alive")?,
+            pool_idle_connection_timeout: globals.get("pool_idle_connection_timeout")?,
+            number_of_https_connections: globals.get("number_of_https_connections")?,
             threads,
-            client_connection_keep_alive: globals.get::<_>("client_connection_keep_alive")?,
+            client_connection_keep_alive: globals.get("client_connection_keep_alive")?,
             rate_limiter: RateLimiter {
-                number_of_requests: rate_limiter["number_of_requests"],
-                time_limit: rate_limiter["time_limit"],
+                number_of_requests: rate_limiter
+                    .get("number_of_requests")
+                    .copied()
+                    .unwrap_or(20),
+                time_limit: rate_limiter.get("time_limit").copied().unwrap_or(3),
             },
             safe_search,
             #[cfg(any(feature = "redis-cache", feature = "memory-cache"))]
             cache_expiry_time,
             proxy,
+            http_cache_expiry_time,
         })
     }
 }
@@ -177,13 +198,13 @@ impl Config {
 /// * `debug` - It takes the option to whether enable or disable debug mode.
 /// * `logging` - It takes the option to whether enable or disable logs.
 fn set_logging_level(debug: bool, logging: bool) {
-    if let Ok(pkg_env_var) = std::env::var("PKG_ENV") {
-        if pkg_env_var.to_lowercase() == "dev" {
-            env_logger::Builder::new()
-                .filter(None, LevelFilter::Trace)
-                .init();
-            return;
-        }
+    if let Ok(pkg_env_var) = std::env::var("PKG_ENV")
+        && pkg_env_var.to_lowercase() == "dev"
+    {
+        env_logger::Builder::new()
+            .filter(None, LevelFilter::Trace)
+            .init();
+        return;
     }
 
     // Initializing logging middleware with level set to default or info.
@@ -195,4 +216,40 @@ fn set_logging_level(debug: bool, logging: bool) {
     };
 
     env_logger::Builder::new().filter(None, log_level).init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_lua_sandbox_blocks_os_and_io() {
+        let lua = Lua::new_with(
+            StdLib::TABLE | StdLib::STRING | StdLib::MATH,
+            LuaOptions::default(),
+        )
+        .unwrap();
+
+        // Attempting to use `os.execute` must fail because `os` is not in the safe stdlib set
+        let os_result = lua.load("os.execute('echo hacked')").exec_async().await;
+        assert!(
+            os_result.is_err(),
+            "Expected os.execute to fail in sandboxed Lua"
+        );
+
+        // Attempting to use `io.open` must fail because `io` is not loaded
+        let io_result = lua.load("io.open('/etc/passwd')").exec_async().await;
+        assert!(
+            io_result.is_err(),
+            "Expected io.open to fail in sandboxed Lua"
+        );
+
+        // Allowed libraries (math, string, table) work normally
+        let safe_result: i32 = lua
+            .load("return math.max(10, 20)")
+            .eval_async()
+            .await
+            .unwrap();
+        assert_eq!(safe_result, 20);
+    }
 }

@@ -1,36 +1,81 @@
 //! This module provides public models for handling, storing and serializing of search results
 //! data scraped from the upstream search engines.
 
-use super::engine_models::EngineError;
+use super::engine::EngineError;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
+
 #[cfg(any(
     feature = "use-synonyms-search",
     feature = "use-non-static-synonyms-search"
 ))]
 use thesaurus::synonyms;
-/// A named struct to store the raw scraped search results scraped search results from the
-/// upstream search engines before aggregating it.It derives the Clone trait which is needed
+
+/// Global lazily initialized English stop words for TF-IDF calculations.
+static STOP_WORDS: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    use stop_words::{Language, get};
+    get(Language::English)
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+});
+
+/// Global lazily initialized punctuation symbols for TF-IDF calculations.
+static PUNCTUATION: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    [
+        ".", ",", ":", ";", "!", "?", "(", ")", "[", "]", "{", "}", "\"", "'", "<", ">",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+});
+
+/// Validates whether a URL uses an allowlisted safe scheme (`http` or `https`).
+///
+/// Prevents cross-site scripting (XSS) via `javascript:`, `data:`, or `file:` URLs.
+///
+/// # Arguments
+///
+/// * `url` - The candidate URL string to validate.
+///
+/// # Returns
+///
+/// Returns `true` if the URL begins with `http://` or `https://`, `false` otherwise.
+///
+/// # Examples
+///
+/// ```rust
+/// use websurfx::models::aggregation::is_safe_url;
+///
+/// assert!(is_safe_url("https://example.com"));
+/// assert!(!is_safe_url("javascript:alert(1)"));
+/// ```
+pub fn is_safe_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    trimmed.starts_with("http://") || trimmed.starts_with("https://")
+}
+
+/// A named struct to store the raw scraped search results from the
+/// upstream search engines before aggregating it. It derives the Clone trait which is needed
 /// to write idiomatic rust using `Iterators`.
-///
-///   (href url in html in simple words).
-///
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     /// The title of the search result.
     pub title: String,
-    /// The url which is accessed when clicked on it
+    /// The url which is accessed when clicked on it (href url in html in simple words).
     pub url: String,
     /// The description of the search result.
     pub description: String,
     /// The names of the upstream engines from which this results were provided.
     pub engine: Vec<String>,
-    /// The td-tdf score of the result in regards to the title, url and description and the user's query
+    /// The td-tdf score of the result in regards to the title, url and description and the
+    /// user's query
     pub relevance_score: f32,
 }
 
 impl SearchResult {
-    /// Constructs a new `RawSearchResult` with the given arguments needed for the struct.
+    /// Constructs a new `SearchResult` with the given arguments needed for the struct.
     ///
     /// # Arguments
     ///
@@ -48,44 +93,20 @@ impl SearchResult {
             engine: engine.iter().map(|name| name.to_string()).collect(),
         }
     }
-    /// calculates and update the relevance score of the current search.
 
+    /// Calculates and updates the relevance score of the current search.
+    ///
     /// # Arguments
     ///
-    /// * query -  the query string  used to obtain the results
-    ///
-    ///
-
+    /// * `query` - The query string used to obtain the results.
     pub fn calculate_relevance(&mut self, query: &str) {
-        use stop_words::{get, LANGUAGE};
-        // when language settings can change to any of the ones supported on this crate: https://docs.rs/crate/stop-words/0.8.0
         let documents = [
             self.title.clone(),
             self.url.clone(),
             self.description.clone(),
         ];
 
-        let stop_words = get(LANGUAGE::English);
-        let punctuation = [
-            ".".to_owned(),
-            ",".to_owned(),
-            ":".to_owned(),
-            ";".to_owned(),
-            "!".to_owned(),
-            "?".to_owned(),
-            "(".to_owned(),
-            ")".to_owned(),
-            "[".to_owned(),
-            "]".to_owned(),
-            "{".to_owned(),
-            "}".to_owned(),
-            "\"".to_owned(),
-            "'".to_owned(),
-            "<".to_owned(),
-            ">".to_owned(),
-        ];
-
-        self.relevance_score = calculate_tf_idf(query, &documents, &stop_words, &punctuation);
+        self.relevance_score = calculate_tf_idf(query, &documents, &STOP_WORDS, &PUNCTUATION);
     }
 
     /// A function which adds the engine name provided as a string into a vector of strings.
@@ -94,7 +115,9 @@ impl SearchResult {
     ///
     /// * `engine` - Takes an engine name provided as a String.
     pub fn add_engines(&mut self, engine: &str) {
-        self.engine.push(engine.to_owned())
+        if !self.engine.iter().any(|e| e == engine) {
+            self.engine.push(engine.to_owned());
+        }
     }
 
     /// A function which returns the engine name stored from the struct as a string.
@@ -102,8 +125,8 @@ impl SearchResult {
     /// # Returns
     ///
     /// An engine name stored as a string from the struct.
-    pub fn engine(&mut self) -> String {
-        std::mem::take(&mut self.engine[0])
+    pub fn engine(&self) -> String {
+        self.engine.first().cloned().unwrap_or_default()
     }
 }
 
@@ -121,7 +144,7 @@ pub struct EngineErrorInfo {
 }
 
 impl EngineErrorInfo {
-    /// Constructs a new `SearchResult` with the given arguments needed for the struct.
+    /// Constructs a new `EngineErrorInfo` with the given arguments needed for the struct.
     ///
     /// # Arguments
     ///
@@ -149,7 +172,6 @@ impl EngineErrorInfo {
 
 /// A named struct to store, serialize, deserialize the all the search results scraped and
 /// aggregated from the upstream search engines.
-/// `SearchResult` structs.
 #[derive(Serialize, Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResults {
@@ -174,15 +196,12 @@ pub struct SearchResults {
 }
 
 impl SearchResults {
-    /// Constructs a new `SearchResult` with the given arguments needed for the struct.
+    /// Constructs a new `SearchResults` with the given arguments needed for the struct.
     ///
     /// # Arguments
     ///
-    /// * `results` - Takes an argument of individual serializable `SearchResult` struct
-    ///   and stores it into a vector of `SearchResult` structs.
-    /// * `page_query` - Takes an argument of current page`s search query `q` provided in
-    ///   the search url.
-    /// * `engine_errors_info` - Takes an array of structs which contains information regarding
+    /// * `results` - Takes a boxed slice of individual serializable `SearchResult` structs.
+    /// * `engine_errors_info` - Takes a boxed slice of structs which contain information regarding
     ///   which engines failed with their names, reason and their severity color name.
     pub fn new(results: Box<[SearchResult]>, engine_errors_info: Box<[EngineErrorInfo]>) -> Self {
         Self {
@@ -206,12 +225,13 @@ impl SearchResults {
     }
 
     /// A getter function that gets the value of `engine_errors_info`.
-    pub fn engine_errors_info(&mut self) -> Box<[EngineErrorInfo]> {
-        std::mem::take(&mut self.engine_errors_info)
+    pub fn engine_errors_info(&self) -> &[EngineErrorInfo] {
+        &self.engine_errors_info
     }
+
     /// A getter function that gets the value of `results`.
-    pub fn results(&mut self) -> Box<[SearchResult]> {
-        self.results.clone()
+    pub fn results(&self) -> &[SearchResult] {
+        &self.results
     }
 
     /// A setter function to set the current page safe search level.
@@ -256,49 +276,150 @@ fn calculate_tf_idf(
     let tokener = Tokenizer::new(query, stop_words, Some(punctuation));
     let query_tokens = tokener.split_into_words();
 
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+
     #[cfg(any(
         feature = "use-synonyms-search",
         feature = "use-non-static-synonyms-search"
     ))]
-    let mut extra_tokens = vec![];
+    let extra_tokens: Vec<String> = query_tokens.par_iter().flat_map(synonyms).collect();
 
     let total_score: f32 = query_tokens
-        .iter()
-        .map(|token| {
-            #[cfg(any(
-                feature = "use-synonyms-search",
-                feature = "use-non-static-synonyms-search"
-            ))]
-            {
-                // find some synonyms and add them to the search  (from wordnet or moby if feature is enabled)
-                extra_tokens.extend(synonyms(token))
-            }
-
-            tf_idf.get_score(token)
-        })
+        .par_iter()
+        .map(|token| tf_idf.get_score(token))
         .sum();
+
+    let result: f32;
 
     #[cfg(not(any(
         feature = "use-synonyms-search",
         feature = "use-non-static-synonyms-search"
     )))]
-    let result = total_score / (query_tokens.len() as f32);
+    {
+        result = total_score / (query_tokens.len() as f32);
+    }
 
     #[cfg(any(
         feature = "use-synonyms-search",
         feature = "use-non-static-synonyms-search"
     ))]
-    let extra_total_score: f32 = extra_tokens
-        .iter()
-        .map(|token| tf_idf.get_score(token))
-        .sum();
+    {
+        let extra_total_score: f32 = extra_tokens
+            .par_iter()
+            .map(|token| tf_idf.get_score(token))
+            .sum();
 
-    #[cfg(any(
-        feature = "use-synonyms-search",
-        feature = "use-non-static-synonyms-search"
-    ))]
-    let result =
-        (extra_total_score + total_score) / ((query_tokens.len() + extra_tokens.len()) as f32);
+        let total_tokens_len = query_tokens.len() + extra_tokens.len();
+        result = if total_tokens_len == 0 {
+            0.0
+        } else {
+            (extra_total_score + total_score) / (total_tokens_len as f32)
+        };
+    }
 
-    f32::from(!result.is_nan()) * result
+    if result.is_nan() { 0.0 } else { result }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test creating a SearchResult and inspecting fields.
+    #[test]
+    fn test_search_result_new_and_getters() {
+        let mut result = SearchResult::new(
+            "Test Title",
+            "https://example.com",
+            "Test Desc",
+            &["duckduckgo"],
+        );
+        assert_eq!(result.title, "Test Title");
+        assert_eq!(result.url, "https://example.com");
+        assert_eq!(result.description, "Test Desc");
+        assert_eq!(result.engine, vec!["duckduckgo".to_string()]);
+        assert_eq!(result.engine(), "duckduckgo");
+        // Calling engine() again should still return "duckduckgo" without destroying data
+        assert_eq!(result.engine(), "duckduckgo");
+
+        // Add engine deduplication
+        result.add_engines("searx");
+        assert_eq!(
+            result.engine,
+            vec!["duckduckgo".to_string(), "searx".to_string()]
+        );
+        result.add_engines("searx"); // Duplicate should not be added
+        assert_eq!(result.engine.len(), 2);
+    }
+
+    /// Test calculate_relevance with empty query and stop words does not produce NaN.
+    #[test]
+    fn test_calculate_relevance_empty_and_stop_words() {
+        let mut result = SearchResult::new(
+            "Rust Language",
+            "https://rust-lang.org",
+            "Safe fast language",
+            &["duckduckgo"],
+        );
+        result.calculate_relevance("");
+        assert!(!result.relevance_score.is_nan());
+        assert_eq!(result.relevance_score, 0.0);
+
+        result.calculate_relevance("the");
+        assert!(!result.relevance_score.is_nan());
+        assert_eq!(result.relevance_score, 0.0);
+
+        result.calculate_relevance("Rust");
+        assert!(!result.relevance_score.is_nan());
+        assert!(result.relevance_score > 0.0);
+    }
+
+    /// Test SearchResults getters do not clear or duplicate data.
+    #[test]
+    fn test_search_results_getters() {
+        let err = EngineErrorInfo::new(&EngineError::RequestError, "searx");
+        let item = SearchResult::new("title", "url", "desc", &["google"]);
+        let results = SearchResults::new(Box::new([item]), Box::new([err]));
+
+        assert_eq!(results.engine_errors_info().len(), 1);
+        // Calling engine_errors_info() again must still have length 1
+        assert_eq!(results.engine_errors_info().len(), 1);
+        assert_eq!(results.results().len(), 1);
+        assert_eq!(results.results().len(), 1);
+    }
+
+    /// Test EngineErrorInfo creation and severity color.
+    #[test]
+    fn test_engine_error_info() {
+        let info = EngineErrorInfo::new(&EngineError::RequestError, "duckduckgo");
+        assert_eq!(info.error, "RequestError");
+        assert_eq!(info.engine, "duckduckgo");
+        assert_eq!(info.severity_color, "green");
+
+        let info2 = EngineErrorInfo::new(&EngineError::UnexpectedError, "bing");
+        assert_eq!(info2.error, "UnexpectedError");
+        assert_eq!(info2.severity_color, "red");
+    }
+
+    /// Test is_safe_url correctly accepts http/https and rejects malicious schemes.
+    #[test]
+    fn test_is_safe_url() {
+        // Safe URLs
+        assert!(super::is_safe_url("http://example.com"));
+        assert!(super::is_safe_url("https://example.com/path?arg=val"));
+        assert!(super::is_safe_url("  https://example.com  "));
+
+        // Malicious/unsafe URLs
+        assert!(!super::is_safe_url("javascript:alert(1)"));
+        assert!(!super::is_safe_url("JAVASCRIPT:alert(document.cookie)"));
+        assert!(!super::is_safe_url(
+            "data:text/html,<script>alert(1)</script>"
+        ));
+        assert!(!super::is_safe_url("vbscript:msgbox(1)"));
+        assert!(!super::is_safe_url("file:///etc/passwd"));
+        assert!(!super::is_safe_url(""));
+        assert!(!super::is_safe_url("   "));
+        assert!(!super::is_safe_url("ftp://example.com"));
+    }
 }

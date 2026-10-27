@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use maud::{html, Markup};
+use maud::{Markup, html};
 
 use crate::templates::partials::{
     footer::footer,
@@ -26,7 +26,7 @@ use crate::templates::partials::{
 ///
 /// This function returns a compiled html markup code on success otherwise returns a standard error
 /// message.
-pub fn settings(
+pub async fn settings(
     safe_search_level: u8,
     colorscheme: &str,
     theme: &str,
@@ -40,18 +40,18 @@ pub fn settings(
            hr;
            .settings_container{
               .sidebar{
-                  div class="btn active" onclick="setActiveTab(this)"{"general"}
-                  .btn onclick="setActiveTab(this)"{"user interface"}
-                  .btn onclick="setActiveTab(this)"{"engines"}
-                  .btn onclick="setActiveTab(this)"{"cookies"}
+                  div class="btn active"{"general"}
+                  .btn{"user interface"}
+                  .btn{"engines"}
+                  .btn{"cookies"}
               }
               .main_container{
                   (general(safe_search_level))
-                  (user_interface(theme, colorscheme, animation)?)
+                  (user_interface(theme, colorscheme, animation).await?)
                   (engines(engine_names))
                   (cookies())
                   p class="message"{}
-                  button type="submit" onclick="setClientSettings()"{"Save"}
+                  button type="submit" id="save-settings"{"Save"}
               }
            }
         }

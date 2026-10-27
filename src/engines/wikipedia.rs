@@ -1,37 +1,38 @@
-//! The `wikipedia` module handles the scraping of results from wikipedia
-//! with user provided query and with a page number if provided.
+//! The `wikipedia` module handles scraping results from Wikipedia.
 
 use std::collections::HashMap;
 
-use reqwest::header::HeaderMap;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use scraper::Html;
 
-use crate::models::aggregation_models::SearchResult;
+use crate::models::aggregation::SearchResult;
+use crate::models::engine::{EngineError, EngineResult, SearchEngine};
 
-use crate::models::engine_models::{EngineError, SearchEngine};
+use error_stack::{Report, ResultExt};
 
-use error_stack::{Report, Result, ResultExt};
-
-use super::common::build_query;
+use super::build_query;
 use super::search_result_parser::SearchResultParser;
 
-/// A new Wikipedia engine type defined in-order to implement the `SearchEngine` trait which allows to
-/// reduce code duplication as well as allows to create vector of different search engines easily.
+/// A Wikipedia engine handler implementing the [`SearchEngine`] trait.
 pub struct Wikipedia {
-    /// The parser, used to interpret the search result.
+    /// The parser used to interpret search results.
     parser: SearchResultParser,
-    /// The id of the engine, equals to 'wikipedia-' + language
+    /// The id of the engine, equals to 'wikipedia-' + language.
     id: String,
     /// The host where wikipedia can be accessed.
     host: String,
 }
 
 impl Wikipedia {
-    /// Creates the Wikipedia parser.
-    pub fn new(language: &str) -> Result<Self, EngineError> {
-        let host = format!("https://{}.wikipedia.org", &language);
-        let id = format!("wikipedia-{}", &language);
+    /// Creates a new Wikipedia parser for a given language code.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`EngineError`] if CSS selector compilation fails.
+    pub fn new(language: &str) -> EngineResult<Self> {
+        let host = format!("https://{}.wikipedia.org", language);
+        let id = format!("wikipedia-{}", language);
         Ok(Self {
             parser: SearchResultParser::new(
                 "p.mw-search-nonefound",
@@ -55,14 +56,14 @@ impl SearchEngine for Wikipedia {
         user_agent: &str,
         client: &Client,
         _safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
         let header_map = HeaderMap::try_from(&HashMap::from([
             ("User-Agent".to_string(), user_agent.to_string()),
             ("Referer".to_string(), self.host.to_string()),
         ]))
         .change_context(EngineError::UnexpectedError)?;
 
-        let offset = (page * 20).to_string();
+        let offset = page.saturating_mul(20).to_string();
         let query_params: Vec<(&str, &str)> = vec![
             ("limit", "20"),
             ("offset", &offset),
@@ -89,10 +90,12 @@ impl SearchEngine for Wikipedia {
             .parse_for_results(&document, |title, url, desc| {
                 let found_url = url.attr("href");
                 found_url.map(|relative_url| {
+                    let clean_title = title.text().collect::<String>();
+                    let clean_desc = desc.text().collect::<String>();
                     SearchResult::new(
-                        title.inner_html().trim(),
+                        clean_title.trim(),
                         &format!("{}{relative_url}", self.host),
-                        desc.inner_html().trim(),
+                        clean_desc.trim(),
                         &[&self.id],
                     )
                 })

@@ -1,8 +1,8 @@
 //! A module that handles `search bar` partial for the search page in the `websurfx` frontend.
 
-use maud::{html, Markup, PreEscaped};
+use maud::{Markup, PreEscaped, html};
 
-use crate::{models::aggregation_models::EngineErrorInfo, templates::partials::bar::bar};
+use crate::{models::aggregation::EngineErrorInfo, templates::partials::bar::bar};
 
 /// A constant holding the named safe search level options for the corresponding values 0, 1 and 2.
 const SAFE_SEARCH_LEVELS_NAME: [&str; 3] = ["None", "Low", "Moderate"];
@@ -29,7 +29,7 @@ pub fn search_bar(
             (bar(query))
                 .error_box {
                    @if !engine_errors_info.is_empty(){
-                      button type="button" onclick="toggleErrorBox()" class="error_box_toggle_button"{
+                      button type="button" class="error_box_toggle_button"{
                          img src="./images/warning.svg" alt="Info icon for error box";
                       }
                       .dropdown_error_box{
@@ -43,7 +43,7 @@ pub fn search_bar(
                       }
                    }
                    @else {
-                      button type="button" onclick="toggleErrorBox()" class="error_box_toggle_button"{
+                      button type="button" class="error_box_toggle_button"{
                          img src="./images/info.svg" alt="Warning icon for error box";
                       }
                       .dropdown_error_box {

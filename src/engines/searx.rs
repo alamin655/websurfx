@@ -1,27 +1,29 @@
-//! The `searx` module handles the scraping of results from the searx search engine instance
-//! by querying the upstream searx search engine instance with user provided query and with a page
-//! number if provided.
+//! The `searx` module handles scraping results from a Searx search engine instance.
 
-use reqwest::header::HeaderMap;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use scraper::Html;
 use std::collections::HashMap;
 
 use super::search_result_parser::SearchResultParser;
-use crate::models::aggregation_models::SearchResult;
-use crate::models::engine_models::{EngineError, SearchEngine};
-use error_stack::{Report, Result, ResultExt};
+use super::url_encode;
+use crate::models::aggregation::SearchResult;
+use crate::models::engine::{EngineError, EngineResult, SearchEngine};
+use error_stack::{Report, ResultExt};
 
-/// A new Searx engine type defined in-order to implement the `SearchEngine` trait which allows to
-/// reduce code duplication as well as allows to create vector of different search engines easily.
+/// A Searx engine handler implementing the [`SearchEngine`] trait.
 pub struct Searx {
-    /// The parser, used to interpret the search result.
+    /// The parser used to interpret search results.
     parser: SearchResultParser,
 }
 
 impl Searx {
-    /// creates a Searx parser
-    pub fn new() -> Result<Searx, EngineError> {
+    /// Creates a new Searx parser.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`EngineError`] if CSS selector compilation fails.
+    pub fn new() -> EngineResult<Searx> {
         Ok(Self {
             parser: SearchResultParser::new(
                 "#urls>.dialog-error>p",
@@ -42,29 +44,21 @@ impl SearchEngine for Searx {
         page: u32,
         user_agent: &str,
         client: &Client,
-        mut safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
-        // A branchless condition to check whether the `safe_search` parameter has the
-        // value greater than equal to three or not. If it is, then it modifies the
-        // `safesearch` parameters value to 2.
-        //
-        // Moreover, the below branchless code is equivalent to the following code below:
-        //
-        // ```rust
-        // safe_search = u8::from(safe_search == 3) * 2;
-        // ```
-        //
-        // For more information on branchless programming. See:
-        //
-        // * https://piped.video/watch?v=bVJ-mWWL7cE
-        safe_search = u8::from(safe_search >= 3) * 2;
+        safe_search: u8,
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
+        // Map safe search levels: 0 => none (0), 1 => moderate (1), 2..=4 => strict (2)
+        let upstream_safesearch = match safe_search {
+            0 => 0,
+            1 => 1,
+            _ => 2,
+        };
 
+        let encoded_query = url_encode(query);
+        let pageno = page.saturating_add(1);
         let url: String = format!(
-            "https://searx.be/search?q={query}&pageno={}&safesearch={safe_search}",
-            page + 1
+            "https://searx.be/search?q={encoded_query}&pageno={pageno}&safesearch={upstream_safesearch}"
         );
 
-        // initializing headers and adding appropriate headers.
         let header_map = HeaderMap::try_from(&HashMap::from([
             ("User-Agent".to_string(), user_agent.to_string()),
             ("Referer".to_string(), "https://google.com/".to_string()),
@@ -77,25 +71,24 @@ impl SearchEngine for Searx {
             &Searx::fetch_html_from_upstream(self, &url, header_map, client).await?,
         );
 
-        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(1) {
-            if no_result_msg.inner_html()
-            == "we didn't find any results. Please use another query or search in more categories"
+        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(1)
+            && no_result_msg.inner_html()
+                == "we didn't find any results. Please use another query or search in more categories"
         {
             return Err(Report::new(EngineError::EmptyResultSet));
         }
-        }
 
-        // scrape all the results from the html
         self.parser
             .parse_for_results(&document, |title, url, desc| {
-                url.value().attr("href").map(|url| {
-                    SearchResult::new(
-                        title.inner_html().trim(),
-                        url,
-                        desc.inner_html().trim(),
-                        &["searx"],
-                    )
-                })
+                let href = url.value().attr("href")?;
+                let clean_title = title.text().collect::<String>();
+                let clean_desc = desc.text().collect::<String>();
+                Some(SearchResult::new(
+                    clean_title.trim(),
+                    href.trim(),
+                    clean_desc.trim(),
+                    &["searx"],
+                ))
             })
     }
 }

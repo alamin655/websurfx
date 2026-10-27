@@ -1,6 +1,6 @@
 //! A module that handles the general tab for setting page view in the `websurfx` frontend.
 
-use maud::{html, Markup};
+use maud::{Markup, html};
 
 /// A constant holding the named safe search level options for the corresponding values 0, 1 and 2.
 const SAFE_SEARCH_LEVELS: [(u8, &str); 3] = [(0, "None"), (1, "Low"), (2, "Moderate")];
@@ -41,7 +41,7 @@ pub fn general(safe_search_level: u8) -> Markup {
            p class="description"{
                "Select a json file to restore preferences for the search engine."
            }
-           form method="post" enctype="multipart/form-data" onsubmit="setTimeout(function () { window.location.reload(); }, 10)" action="/settings" target="_self"{
+           form id="restore-settings" method="post" enctype="multipart/form-data" action="/settings" target="_self"{
                 input type="file" name="file" accept="application/json";
                 button type="submit" {"Submit"}
            }

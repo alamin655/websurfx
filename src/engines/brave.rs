@@ -1,18 +1,17 @@
-//! The `brave` module handles the scraping of results from the brave search engine
-//! by querying the upstream brave search engine with user provided query and with a page
-//! number if provided.
+//! The `brave` module handles scraping results from the Brave search engine.
 
 use std::collections::HashMap;
 
-use reqwest::{header::HeaderMap, Client};
+use reqwest::{Client, header::HeaderMap};
 use scraper::Html;
 
-use crate::models::aggregation_models::SearchResult;
-use error_stack::{Report, Result, ResultExt};
+use crate::models::{aggregation::SearchResult, engine::EngineResult};
+use error_stack::{Report, ResultExt};
 
-use crate::models::engine_models::{EngineError, SearchEngine};
+use crate::models::engine::{EngineError, SearchEngine};
 
 use super::search_result_parser::SearchResultParser;
+use super::url_encode;
 
 /// Scrapes the results from the Brave search engine.  
 pub struct Brave {
@@ -22,7 +21,7 @@ pub struct Brave {
 
 impl Brave {
     /// Creates the Brave parser.
-    pub fn new() -> Result<Brave, EngineError> {
+    pub fn new() -> EngineResult<Brave> {
         Ok(Self {
             parser: SearchResultParser::new(
                 "#results h4",
@@ -44,8 +43,9 @@ impl SearchEngine for Brave {
         user_agent: &str,
         client: &Client,
         safe_search: u8,
-    ) -> Result<Vec<(String, SearchResult)>, EngineError> {
-        let url = format!("https://search.brave.com/search?q={query}&offset={page}");
+    ) -> EngineResult<Vec<(String, SearchResult)>> {
+        let encoded_query = url_encode(query);
+        let url = format!("https://search.brave.com/search?q={encoded_query}&offset={page}");
 
         let safe_search_level = match safe_search {
             0 => "off",
@@ -71,22 +71,23 @@ impl SearchEngine for Brave {
             &Brave::fetch_html_from_upstream(self, &url, header_map, client).await?,
         );
 
-        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(0) {
-            if no_result_msg
+        if let Some(no_result_msg) = self.parser.parse_for_no_results(&document).nth(0)
+            && no_result_msg
                 .inner_html()
                 .contains("Not many great matches came back for your search")
-            {
-                return Err(Report::new(EngineError::EmptyResultSet));
-            }
+        {
+            return Err(Report::new(EngineError::EmptyResultSet));
         }
 
         self.parser
             .parse_for_results(&document, |title, url, desc| {
                 url.value().attr("href").map(|url| {
+                    let clean_title = title.text().collect::<String>();
+                    let clean_desc = desc.text().collect::<String>();
                     SearchResult::new(
-                        title.text().collect::<Vec<_>>().join("").trim(),
+                        clean_title.trim(),
                         url.trim(),
-                        desc.inner_html().trim(),
+                        clean_desc.trim(),
                         &["brave"],
                     )
                 })
